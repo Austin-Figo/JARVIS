@@ -1,0 +1,8 @@
+{
+    "assistant_name": "JARVIS",
+    "wake_phrase": "Daddy's home",
+    "language": "en-IN",
+    "startup_mode": "background",
+    "require_confirmation_for_sensitive_actions": true,
+    "debug_mode": true
+}
