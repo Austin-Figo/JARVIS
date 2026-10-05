@@ -1,0 +1,46 @@
+@import './fonts.css';
+@import './tailwind.css';
+@import './theme.css';
+
+/* JARVIS OS — Global dark override */
+html,
+body,
+#root {
+  background: #010812 !important;
+  color: rgba(220, 235, 255, 0.9);
+  overflow: hidden;
+  height: 100%;
+  width: 100%;
+}
+
+/* Scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 245, 255, 0.2) transparent;
+}
+*::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(0, 245, 255, 0.2);
+  border-radius: 2px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 245, 255, 0.4);
+}
+
+/* Range input accent */
+input[type='range'] {
+  accent-color: #a855f7;
+  height: 4px;
+}
+
+/* Remove input autofill yellow background */
+input:-webkit-autofill,
+input:-webkit-autofill:focus {
+  transition: background-color 600000s 0s, color 600000s 0s;
+}

@@ -1,9 +1,6 @@
-from core.jarvis_core import JarvisCore
-
-
 def main():
-    jarvis = JarvisCore()
-    jarvis.start()
+    from app.desktop import run_desktop_app
+    run_desktop_app()
 
 
 if __name__ == "__main__":

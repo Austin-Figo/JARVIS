@@ -1,8 +1,16 @@
 {
     "assistant_name": "JARVIS",
     "wake_phrase": "Daddy's home",
-    "language": "en-IN",
-    "startup_mode": "background",
+    "language": "en-US",
+    "tts_enabled": true,
+    "wake_detection_enabled": true,
     "require_confirmation_for_sensitive_actions": true,
-    "debug_mode": true
+    "api": {
+        "host": "127.0.0.1",
+        "port": 8765
+    },
+    "frontend": {
+        "dev_host": "127.0.0.1",
+        "dev_port": 5173
+    }
 }
