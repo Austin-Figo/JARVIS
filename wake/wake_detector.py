@@ -7,6 +7,7 @@ and real-time audio level monitoring for transient spike (clap) detection.
 from __future__ import annotations
 
 import base64
+import os
 import queue
 import subprocess
 import threading
@@ -22,32 +23,12 @@ $engine.SetInputToDefaultAudioDevice()
 # Build targeted grammar for wake phrases
 $builder = New-Object System.Speech.Recognition.GrammarBuilder
 $choices = New-Object System.Speech.Recognition.Choices
-$choices.Add([string[]]@("Daddy's home", "daddy's home", "Jarvis", "hey Jarvis", "wake up Jarvis"))
+$choices.Add([string[]]@("Hey Jarvis", "hey Jarvis", "hey jarvis", "Jarvis", "jarvis", "Daddy's home", "daddy's home", "Wake up Jarvis", "wake up jarvis", "Hello Jarvis", "hello jarvis", "Ok Jarvis", "Okay Jarvis"))
 $builder.Append($choices)
 $grammar = New-Object System.Speech.Recognition.Grammar($builder)
 $engine.LoadGrammar($grammar)
 
-# Audio level tracking for clap detection
-$script:lastSpike = 0
-$script:spikeCount = 0
-
-$engine.add_AudioLevelUpdated({
-    param($sender, $event)
-    $level = $event.AudioLevel
-    $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-
-    # Peak detection: level > 78
-    if ($level -ge 78) {
-        $diff = $now - $script:lastSpike
-        if ($diff -gt 180 -and $diff -lt 850) {
-            [Console]::Out.WriteLine("CLAP:2")
-            [Console]::Out.Flush()
-            $script:lastSpike = 0
-        } elseif ($diff -ge 850) {
-            $script:lastSpike = $now
-        }
-    }
-})
+# Audio level tracking disabled to prevent background noise false-triggers
 
 $engine.add_SpeechRecognized({
     param($sender, $event)
@@ -87,17 +68,23 @@ class WakeDetector:
             if self.is_running:
                 return {"ok": True, "running": True, "message": "Wake detector is already active."}
 
-            encoded = base64.b64encode(_WAKE_SCRIPT.encode("utf-16-le")).decode("ascii")
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            kwargs = {}
+            if os.name == "nt":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 0  # SW_HIDE
+                kwargs["startupinfo"] = startupinfo
 
             try:
+                encoded = base64.b64encode(_WAKE_SCRIPT.encode("utf-16le")).decode("ascii")
                 self._process = subprocess.Popen(
-                    ["powershell", "-NoProfile", "-EncodedCommand", encoded],
+                    ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encoded],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
                     text=True,
                     bufsize=1,
-                    creationflags=flags,
+                    **kwargs,
                 )
                 self._is_running = True
                 self._reader = threading.Thread(target=self._read_output, name="jarvis-wake-reader", daemon=True)

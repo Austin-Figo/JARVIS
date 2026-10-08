@@ -14,6 +14,11 @@ datas = [
 ]
 
 hiddenimports = [
+    "app",
+    "app.backend_server",
+    "app.desktop",
+    "core",
+    "core.jarvis_core",
     "PySide6",
     "PySide6.QtCore",
     "PySide6.QtGui",
@@ -29,6 +34,8 @@ hiddenimports = [
     "actions.system_controls",
     "actions.screen",
     "actions.browser",
+    "actions.app_launcher",
+    "actions.weather",
     "automation",
     "automation.workflows",
     "ai",
@@ -71,7 +78,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,  # Windowed desktop application (no cmd prompt popup)
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -86,7 +93,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name="JARVIS",
 )

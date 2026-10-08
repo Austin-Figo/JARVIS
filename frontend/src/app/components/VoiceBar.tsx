@@ -36,11 +36,15 @@ export function VoiceBar() {
       if (response.action === 'settings') setSettingsOpen(true);
       if (response.action === 'apps') setAppGridOpen(true);
       if (response.action === 'gesture') setGestureOpen(true);
+      setAiState('responding');
+      const spokenDuration = Math.min(Math.max((response.message?.length || 20) * 60, 2500), 8000);
+      setTimeout(() => {
+        setAiState(voiceConnected ? 'listening' : 'idle');
+      }, spokenDuration);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to process the command.';
       addMessage({ type: 'ai', text: message });
       addNotification({ type: 'error', title: 'Command Failed', message });
-    } finally {
       setAiState(voiceConnected ? 'listening' : 'idle');
     }
   }, [addMessage, addNotification, setAiState, setAppGridOpen, setGestureOpen, setPendingConfirmation, setScanningActive, setSettingsOpen, voiceConnected]);

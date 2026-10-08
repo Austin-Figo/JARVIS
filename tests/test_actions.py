@@ -51,5 +51,14 @@ class TestActions(unittest.TestCase):
         self.assertEqual(diag["workflow"], "diagnostics_mode")
 
 
+    def test_app_launcher(self):
+        from actions.app_launcher import resolve_application, get_available_system_apps
+        self.assertIsNotNone(resolve_application("calc"))
+        self.assertIsNotNone(resolve_application("notepad"))
+        self.assertIsNotNone(resolve_application("cmd"))
+        self.assertIsNotNone(resolve_application("settings"))
+        self.assertGreater(len(get_available_system_apps()), 10)
+
+
 if __name__ == "__main__":
     unittest.main()

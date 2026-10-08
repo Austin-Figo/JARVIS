@@ -13,6 +13,8 @@ from actions.system_controls import (
 )
 from actions.screen import capture_screenshot
 from actions.browser import open_url, search_web
+from actions.app_launcher import launch_application, resolve_application, get_available_system_apps
+from actions.weather import get_weather
 
 __all__ = [
     "volume_up",
@@ -27,4 +29,9 @@ __all__ = [
     "capture_screenshot",
     "open_url",
     "search_web",
+    "launch_application",
+    "resolve_application",
+    "get_available_system_apps",
+    "get_weather",
 ]
+

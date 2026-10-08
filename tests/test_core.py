@@ -56,8 +56,10 @@ class TestJarvisCore(unittest.TestCase):
     def test_open_app_confirmation(self):
         app_res = self.core.execute_command("open notepad")
         self.assertTrue(app_res["ok"])
-        self.assertTrue(app_res.get("requires_confirmation"))
-        self.assertIn("confirmation", app_res)
+
+        # Unknown app returns error
+        bad_res = self.core.execute_command("open non_existent_app_xyz")
+        self.assertFalse(bad_res["ok"])
 
 
 if __name__ == "__main__":

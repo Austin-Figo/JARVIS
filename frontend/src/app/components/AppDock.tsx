@@ -5,32 +5,144 @@ import {
   BarChart3, Camera, ChevronUp, Grid
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { sendCommand, startVoiceRecognition, stopVoiceRecognition } from '../services/jarvisApi';
 
 const orb = { fontFamily: 'Orbitron, sans-serif' };
 const mono = { fontFamily: 'Share Tech Mono, monospace' };
 const raj = { fontFamily: 'Rajdhani, sans-serif' };
 
 const DOCK_APPS = [
-  { id: 'nexus', name: 'JARVIS', icon: Brain, color: '#a855f7' },
+  { id: 'nexus', name: 'JARVIS Voice', icon: Brain, color: '#a855f7' },
   { id: 'terminal', name: 'Terminal', icon: Terminal, color: '#00f5ff' },
   { id: 'browser', name: 'Holoweb', icon: Globe, color: '#0ea5e9' },
   { id: 'monitor', name: 'Monitor', icon: BarChart3, color: '#22c55e' },
   { id: 'vision', name: 'AI Vision', icon: Camera, color: '#ec4899' },
-  { id: 'music', name: 'Spotify', icon: Music, color: '#1db954' },
+  { id: 'music', name: 'Media / Spotify', icon: Music, color: '#1db954' },
   { id: 'files', name: 'Files', icon: FileText, color: '#f59e0b' },
   { id: 'settings', name: 'Settings', icon: Settings, color: '#64748b' },
 ];
 
 export function AppDock() {
-  const { setAppGridOpen, setSettingsOpen, addNotification } = useApp();
+  const {
+    aiState, setAiState,
+    addMessage, addNotification,
+    setAppGridOpen, setSettingsOpen, setGestureOpen, setScanningActive,
+    leftPanel, setLeftPanel,
+    rightPanel, setRightPanel,
+    settingsOpen, gestureOpen, appGridOpen
+  } = useApp();
+
   const [hovered, setHovered] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<string | null>(null);
 
-  const handleClick = (app: typeof DOCK_APPS[0]) => {
-    if (app.id === 'settings') {
-      setSettingsOpen(true);
-    } else {
-      addNotification({ type: 'info', title: `${app.name} Launching`, message: `Initializing ${app.name}...` });
+  const isAppActive = (id: string) => {
+    switch (id) {
+      case 'nexus': return aiState !== 'idle';
+      case 'terminal': return rightPanel === 'console';
+      case 'monitor': return leftPanel === 'monitor';
+      case 'vision': return gestureOpen;
+      case 'settings': return settingsOpen;
+      default: return false;
+    }
+  };
+
+  const handleClick = async (app: typeof DOCK_APPS[0]) => {
+    switch (app.id) {
+      case 'nexus': {
+        if (aiState === 'listening') {
+          await stopVoiceRecognition();
+          setAiState('idle');
+          addNotification({ type: 'info', title: 'JARVIS Standby', message: 'Voice listening paused.' });
+        } else {
+          try {
+            await startVoiceRecognition();
+            setAiState('listening');
+            addNotification({ type: 'info', title: 'JARVIS Active', message: 'Listening through microphone. Speak your command...' });
+          } catch {
+            setAiState('listening');
+            addNotification({ type: 'info', title: 'JARVIS Active', message: 'Ready for commands.' });
+          }
+        }
+        break;
+      }
+
+      case 'terminal': {
+        setRightPanel('console');
+        addNotification({ type: 'info', title: 'Terminal', message: 'Launching Windows Terminal...' });
+        try {
+          const res = await sendCommand('open terminal', 'console');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {
+          addNotification({ type: 'error', title: 'Terminal', message: 'Unable to launch terminal.' });
+        }
+        break;
+      }
+
+      case 'browser': {
+        addNotification({ type: 'info', title: 'Holoweb Browser', message: 'Launching web browser...' });
+        try {
+          const res = await sendCommand('open chrome', 'console');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {
+          addNotification({ type: 'error', title: 'Browser', message: 'Unable to launch browser.' });
+        }
+        break;
+      }
+
+      case 'monitor': {
+        setLeftPanel('monitor');
+        setScanningActive(true);
+        addNotification({ type: 'info', title: 'Telemetry Scanner', message: 'Initiating full hardware diagnostics...' });
+        try {
+          const res = await sendCommand('scan', 'console');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {
+          // ignore
+        }
+        break;
+      }
+
+      case 'vision': {
+        setGestureOpen(true);
+        addNotification({ type: 'info', title: 'AI Vision Module', message: 'Capturing screen and activating camera telemetry...' });
+        try {
+          const res = await sendCommand('screenshot', 'console');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {
+          // ignore
+        }
+        break;
+      }
+
+      case 'music': {
+        addNotification({ type: 'info', title: 'Media Controls', message: 'Toggling media playback...' });
+        try {
+          const res = await sendCommand('play pause', 'console');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {
+          addNotification({ type: 'error', title: 'Media', message: 'Unable to control media.' });
+        }
+        break;
+      }
+
+      case 'files': {
+        addNotification({ type: 'info', title: 'Windows Explorer', message: 'Opening File Explorer...' });
+        try {
+          const res = await sendCommand('open explorer', 'console');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {
+          addNotification({ type: 'error', title: 'Files', message: 'Unable to open file explorer.' });
+        }
+        break;
+      }
+
+      case 'settings': {
+        setSettingsOpen(true);
+        break;
+      }
+
+      default:
+        break;
     }
   };
 
@@ -98,7 +210,7 @@ export function AppDock() {
 
             {/* App icon */}
             <motion.button
-              onClick={() => handleClick(app)}
+              onClick={() => void handleClick(app)}
               animate={{ scale: getScale(app.id) }}
               transition={{ type: 'spring', stiffness: 400, damping: 25 }}
               className="w-11 h-11 rounded-xl flex items-center justify-center cursor-pointer relative"
@@ -110,11 +222,13 @@ export function AppDock() {
             >
               <app.icon className="w-5 h-5" style={{ color: app.color }} />
 
-              {/* Active indicator */}
-              {(app.id === 'nexus') && (
-                <div
+              {/* Live Active indicator */}
+              {isAppActive(app.id) && (
+                <motion.div
+                  animate={{ scale: [1, 1.3, 1], opacity: [0.8, 1, 0.8] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
                   className="absolute -bottom-1.5 w-1.5 h-1.5 rounded-full"
-                  style={{ background: app.color, boxShadow: `0 0 4px ${app.color}` }}
+                  style={{ background: app.color, boxShadow: `0 0 6px ${app.color}` }}
                 />
               )}
             </motion.button>
@@ -148,13 +262,19 @@ export function AppDock() {
             whileHover={{ scale: 1.2 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setAppGridOpen(true)}
-            className="w-11 h-11 rounded-xl flex items-center justify-center cursor-pointer"
+            className="w-11 h-11 rounded-xl flex items-center justify-center cursor-pointer relative"
             style={{
               background: 'rgba(0,245,255,0.06)',
               border: '1px solid rgba(0,245,255,0.2)',
             }}
           >
             <Grid className="w-5 h-5" style={{ color: '#00f5ff' }} />
+            {appGridOpen && (
+              <div
+                className="absolute -bottom-1.5 w-1.5 h-1.5 rounded-full"
+                style={{ background: '#00f5ff', boxShadow: '0 0 6px #00f5ff' }}
+              />
+            )}
           </motion.button>
         </div>
       </div>

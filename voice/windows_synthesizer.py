@@ -7,7 +7,9 @@ hidden PowerShell process with zero external Python dependencies.
 from __future__ import annotations
 
 import base64
+import os
 import queue
+import re
 import subprocess
 import threading
 import time
@@ -68,18 +70,24 @@ class WindowsSpeechSynthesizer:
             if self._process and self._process.poll() is None:
                 return True
 
-            encoded = base64.b64encode(_TTS_SCRIPT.encode("utf-16-le")).decode("ascii")
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            kwargs = {}
+            if os.name == "nt":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 0  # SW_HIDE
+                kwargs["startupinfo"] = startupinfo
 
             try:
+                encoded = base64.b64encode(_TTS_SCRIPT.encode("utf-16le")).decode("ascii")
                 self._process = subprocess.Popen(
-                    ["powershell", "-NoProfile", "-EncodedCommand", encoded],
+                    ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encoded],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
                     text=True,
                     bufsize=1,
-                    creationflags=flags,
+                    **kwargs,
                 )
                 # Wait briefly for READY banner
                 ready_line = self._process.stdout.readline().strip() if self._process.stdout else ""
@@ -133,7 +141,16 @@ class WindowsSpeechSynthesizer:
             return {"ok": False, "message": "Text is empty."}
 
         # Remove markdown symbols and code fences for cleaner speech
-        clean_spoken = clean.replace("`", "").replace("*", "").replace("#", "")
+        clean_spoken = re.sub(r"```[\s\S]*?```", "Code omitted.", clean)
+        clean_spoken = clean_spoken.replace("`", "").replace("*", "").replace("#", "")
+
+        # If text is long, speak the first 2-3 sentences (~280 chars) for snappy voice feedback
+        if len(clean_spoken) > 300:
+            match = re.search(r"^(.{100,280}?[.!?])(?:\s|$)", clean_spoken)
+            if match:
+                clean_spoken = match.group(1)
+            else:
+                clean_spoken = clean_spoken[:280].rsplit(" ", 1)[0] + "..."
 
         effective_rate = self._rate if rate is None else max(-10, min(10, rate))
         effective_volume = self._volume if volume is None else max(0, min(100, volume))

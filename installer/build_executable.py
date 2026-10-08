@@ -61,26 +61,68 @@ def build_executable() -> bool:
     ], cwd=PROJECT_ROOT)
 
 
+def clean_build_artifacts() -> None:
+    step("Cleaning previous build artifacts and caches...")
+    build_dir = PROJECT_ROOT / "build"
+    if build_dir.exists():
+        shutil.rmtree(build_dir, ignore_errors=True)
+    dist_dir = PROJECT_ROOT / "dist"
+    if dist_dir.exists():
+        shutil.rmtree(dist_dir, ignore_errors=True)
+    for pycache in PROJECT_ROOT.glob("**/__pycache__"):
+        try:
+            shutil.rmtree(pycache, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def main() -> int:
     print("=" * 60)
     print("JARVIS - STANDALONE BUILD SCRIPT")
     print("=" * 60)
+
+    # 0. Clean prior build artifacts
+    clean_build_artifacts()
 
     # 1. Compile frontend
     if not build_frontend():
         print("[!] Frontend compilation failed.")
         return 1
 
-    # 2. Package with PyInstaller
     if not build_executable():
         print("[!] PyInstaller build failed.")
         return 1
 
     target = PROJECT_ROOT / "dist" / "JARVIS" / "JARVIS.exe"
+    dist_folder = PROJECT_ROOT / "dist" / "JARVIS"
+
+    # Ensure assets are present in dist/JARVIS for reliable runtime resolution
+    if dist_folder.exists():
+        frontend_src = FRONTEND_DIR / "dist"
+        if frontend_src.exists():
+            for dest in [dist_folder / "frontend" / "dist", dist_folder / "_internal" / "frontend" / "dist"]:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                if dest.exists():
+                    shutil.rmtree(dest)
+                shutil.copytree(frontend_src, dest)
+                print(f"    Synced frontend bundle to {dest}")
+
+        config_src = PROJECT_ROOT / "config" / "settings.json"
+        if config_src.exists():
+            for dest in [dist_folder / "config" / "settings.json", dist_folder / "_internal" / "config" / "settings.json"]:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(config_src, dest)
+                print(f"    Synced config to {dest}")
+
     print("\n" + "=" * 60)
     if target.exists():
         print(f"SUCCESS! Standalone application built successfully:")
         print(f"Executable: {target}")
+        try:
+            from installer.create_shortcut import create_shortcuts
+            create_shortcuts()
+        except Exception:
+            pass
     else:
         print(f"Build complete. Look inside: {PROJECT_ROOT / 'dist' / 'JARVIS'}")
     print("=" * 60)

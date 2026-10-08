@@ -39,14 +39,20 @@ $bitmap.Dispose()
 """
 
     encoded = base64.b64encode(ps_script.encode("utf-16-le")).decode("ascii")
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    kwargs = {}
+    if os.name == "nt":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0  # SW_HIDE
+        kwargs["startupinfo"] = startupinfo
 
     try:
         proc = subprocess.run(
-            ["powershell", "-NoProfile", "-EncodedCommand", encoded],
+            ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encoded],
             capture_output=True,
             timeout=10,
-            creationflags=flags,
+            **kwargs,
         )
         if target_path.exists() and target_path.stat().st_size > 0:
             return {

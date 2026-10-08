@@ -1,6 +1,6 @@
 {
     "assistant_name": "JARVIS",
-    "wake_phrase": "Daddy's home",
+    "wake_phrase": "Hey Jarvis",
     "language": "en-US",
     "tts_enabled": true,
     "wake_detection_enabled": true,
@@ -12,5 +12,8 @@
     "frontend": {
         "dev_host": "127.0.0.1",
         "dev_port": 5173
-    }
+    },
+    "geminiKey": "AQ.Ab8RN6KUqODEMeS2PBS6YypUvRRz-NZL3RmWbv6gK3mUa_I1yA",
+    "ai_provider": "gemini",
+    "ai_model": "gemini-3.1-flash-lite"
 }

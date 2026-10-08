@@ -1,19 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Hand, Camera, Activity, ChevronRight, Zap } from 'lucide-react';
+import { X, Hand, Camera, Activity, ChevronRight, Zap, Play } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { startVoiceRecognition, stopSpeech, sendCommand } from '../services/jarvisApi';
 
 const orb = { fontFamily: 'Orbitron, sans-serif' };
 const mono = { fontFamily: 'Share Tech Mono, monospace' };
 const raj = { fontFamily: 'Rajdhani, sans-serif' };
 
 const GESTURES = [
-  { name: 'SWIPE RIGHT', desc: 'Navigate / Select', icon: '→', color: '#00f5ff' },
+  { name: 'SWIPE RIGHT', desc: 'Navigate / Open Apps', icon: '→', color: '#00f5ff' },
   { name: 'SWIPE LEFT', desc: 'Go Back / Dismiss', icon: '←', color: '#00f5ff' },
-  { name: 'TWO FINGERS', desc: 'Scroll / Zoom', icon: '✌', color: '#a855f7' },
-  { name: 'OPEN PALM', desc: 'Pause / Stop AI', icon: '✋', color: '#f59e0b' },
-  { name: 'PINCH', desc: 'Close Panel', icon: '🤏', color: '#ef4444' },
-  { name: 'POINT UP', desc: 'Activate Voice', icon: '☝', color: '#22c55e' },
+  { name: 'TWO FINGERS', desc: 'Diagnostic Scan', icon: '✌', color: '#a855f7' },
+  { name: 'OPEN PALM', desc: 'Pause / Stop Speech', icon: '✋', color: '#f59e0b' },
+  { name: 'PINCH', desc: 'Close Gesture HUD', icon: '🤏', color: '#ef4444' },
+  { name: 'POINT UP', desc: 'Activate Microphone', icon: '☝', color: '#22c55e' },
 ];
 
 // Simplified hand skeleton points
@@ -93,23 +94,83 @@ function HandSkeleton({ gesture }: { gesture: string }) {
 }
 
 export function GesturePanel() {
-  const { gestureOpen, setGestureOpen, addNotification } = useApp();
+  const { gestureOpen, setGestureOpen, addNotification, setAppGridOpen, setScanningActive, setAiState } = useApp();
   const [activeGesture, setActiveGesture] = useState(GESTURES[0].name);
   const [confidence, setConfidence] = useState(89.4);
   const [detecting, setDetecting] = useState(true);
+  const [cameraActive, setCameraActive] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (!gestureOpen) {
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
+      }
+      setCameraActive(false);
+      return;
+    }
+
+    navigator.mediaDevices?.getUserMedia({ video: { width: 640, height: 480 } })
+      .then(stream => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          setCameraActive(true);
+        }
+      })
+      .catch(() => {
+        setCameraActive(false);
+      });
+
+    return () => {
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [gestureOpen]);
 
   useEffect(() => {
     if (!gestureOpen) return;
     const interval = setInterval(() => {
-      setConfidence(75 + Math.random() * 20);
-      if (Math.random() > 0.85) {
-        const next = GESTURES[Math.floor(Math.random() * GESTURES.length)];
-        setActiveGesture(next.name);
-        addNotification({ type: 'info', title: 'Gesture Detected', message: `${next.name} — ${next.desc}` });
-      }
+      setConfidence(78 + Math.random() * 18);
     }, 2000);
     return () => clearInterval(interval);
   }, [gestureOpen]);
+
+  const executeGesture = async (gestureName: string) => {
+    setActiveGesture(gestureName);
+    switch (gestureName) {
+      case 'OPEN PALM':
+        await stopSpeech();
+        addNotification({ type: 'info', title: 'Gesture Executed', message: '✋ Open Palm: Speech paused / cancelled.' });
+        break;
+      case 'POINT UP':
+        await startVoiceRecognition();
+        setAiState('listening');
+        addNotification({ type: 'success', title: 'Gesture Executed', message: '☝ Point Up: Microphone active and listening.' });
+        break;
+      case 'SWIPE RIGHT':
+        setGestureOpen(false);
+        setAppGridOpen(true);
+        addNotification({ type: 'info', title: 'Gesture Executed', message: '→ Swipe Right: Opened App Launcher.' });
+        break;
+      case 'SWIPE LEFT':
+        setGestureOpen(false);
+        addNotification({ type: 'info', title: 'Gesture Executed', message: '← Swipe Left: Panel closed.' });
+        break;
+      case 'TWO FINGERS':
+        setScanningActive(true);
+        void sendCommand('scan');
+        addNotification({ type: 'info', title: 'Gesture Executed', message: '✌ Two Fingers: Diagnostic scan initiated.' });
+        break;
+      case 'PINCH':
+        setGestureOpen(false);
+        addNotification({ type: 'info', title: 'Gesture Executed', message: '🤏 Pinch: Closed Gesture HUD.' });
+        break;
+    }
+  };
 
   const currentGesture = GESTURES.find(g => g.name === activeGesture) || GESTURES[0];
 
@@ -166,16 +227,26 @@ export function GesturePanel() {
               {/* Camera preview */}
               <div
                 className="relative overflow-hidden"
-                style={{ width: '55%', minHeight: 380, background: 'rgba(0,4,12,0.8)', borderRight: '1px solid rgba(0,245,255,0.1)' }}
+                style={{ width: '55%', minHeight: 380, background: 'rgba(0,4,12,0.85)', borderRight: '1px solid rgba(0,245,255,0.1)' }}
               >
-                {/* Simulated camera feed */}
+                {/* Live camera feed */}
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="absolute inset-0 w-full h-full object-cover opacity-60"
+                  style={{ filter: 'contrast(1.1) brightness(0.9)' }}
+                />
+
+                {/* Simulated grid overlay */}
                 <div
-                  className="absolute inset-0"
+                  className="absolute inset-0 pointer-events-none"
                   style={{
                     backgroundImage: `
-                      radial-gradient(ellipse at 50% 50%, rgba(0,245,255,0.03) 0%, transparent 60%),
-                      linear-gradient(rgba(0,245,255,0.02) 1px, transparent 1px),
-                      linear-gradient(90deg, rgba(0,245,255,0.02) 1px, transparent 1px)
+                      radial-gradient(ellipse at 50% 50%, rgba(0,245,255,0.04) 0%, transparent 65%),
+                      linear-gradient(rgba(0,245,255,0.03) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(0,245,255,0.03) 1px, transparent 1px)
                     `,
                     backgroundSize: '100% 100%, 20px 20px, 20px 20px',
                   }}
@@ -204,11 +275,18 @@ export function GesturePanel() {
                 {/* CAMERA badge */}
                 <div
                   className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1 rounded-full"
-                  style={{ background: 'rgba(0,5,15,0.8)', border: '1px solid rgba(0,245,255,0.2)' }}
+                  style={{ background: 'rgba(0,5,15,0.85)', border: '1px solid rgba(0,245,255,0.25)', zIndex: 10 }}
                 >
-                  <Camera className="w-3 h-3" style={{ color: '#00f5ff' }} />
-                  <span style={{ ...mono, color: 'rgba(0,245,255,0.7)', fontSize: '9px' }}>CAMERA ACTIVE — 60fps</span>
-                  <motion.div animate={{ opacity: [1, 0.2, 1] }} transition={{ duration: 1, repeat: Infinity }} className="w-1.5 h-1.5 rounded-full" style={{ background: '#22c55e' }} />
+                  <Camera className="w-3 h-3" style={{ color: cameraActive ? '#22c55e' : '#00f5ff' }} />
+                  <span style={{ ...mono, color: 'rgba(0,245,255,0.8)', fontSize: '9px' }}>
+                    {cameraActive ? 'WEBCAM ACTIVE — 60fps' : 'HUD VISION ACTIVE'}
+                  </span>
+                  <motion.div
+                    animate={{ opacity: [1, 0.2, 1] }}
+                    transition={{ duration: 1, repeat: Infinity }}
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{ background: cameraActive ? '#22c55e' : '#00f5ff' }}
+                  />
                 </div>
 
                 {/* Hand skeleton */}
@@ -265,38 +343,59 @@ export function GesturePanel() {
                 </div>
 
                 {/* Current gesture details */}
-                <div className="rounded-xl p-3" style={{ background: `${currentGesture.color}08`, border: `1px solid ${currentGesture.color}25` }}>
-                  <p style={{ ...mono, color: 'rgba(255,255,255,0.4)', fontSize: '9px', marginBottom: 4 }}>ACTIVE GESTURE</p>
-                  <p style={{ ...raj, color: currentGesture.color, fontSize: '18px', textShadow: `0 0 10px ${currentGesture.color}` }}>
-                    {currentGesture.icon} {currentGesture.name}
-                  </p>
-                  <div className="flex items-center gap-1 mt-1">
-                    <ChevronRight className="w-3 h-3" style={{ color: 'rgba(255,255,255,0.3)' }} />
-                    <span style={{ ...raj, color: 'rgba(255,255,255,0.5)', fontSize: '12px' }}>{currentGesture.desc}</span>
+                <div className="rounded-xl p-3 flex flex-col gap-2" style={{ background: `${currentGesture.color}08`, border: `1px solid ${currentGesture.color}25` }}>
+                  <div>
+                    <p style={{ ...mono, color: 'rgba(255,255,255,0.4)', fontSize: '9px', marginBottom: 2 }}>ACTIVE GESTURE</p>
+                    <p style={{ ...raj, color: currentGesture.color, fontSize: '18px', fontWeight: 600, textShadow: `0 0 10px ${currentGesture.color}` }}>
+                      {currentGesture.icon} {currentGesture.name}
+                    </p>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <ChevronRight className="w-3 h-3" style={{ color: 'rgba(255,255,255,0.3)' }} />
+                      <span style={{ ...raj, color: 'rgba(255,255,255,0.6)', fontSize: '12px' }}>{currentGesture.desc}</span>
+                    </div>
                   </div>
+
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => void executeGesture(activeGesture)}
+                    className="w-full py-2 rounded-lg flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all"
+                    style={{
+                      background: `linear-gradient(135deg, ${currentGesture.color}25, ${currentGesture.color}50)`,
+                      border: `1px solid ${currentGesture.color}80`,
+                    }}
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" style={{ color: currentGesture.color }} />
+                    <span style={{ ...orb, color: '#ffffff', fontSize: '10px', letterSpacing: '0.1em' }}>
+                      EXECUTE {activeGesture}
+                    </span>
+                  </motion.button>
                 </div>
 
                 {/* Gesture reference */}
                 <div>
-                  <p style={{ ...mono, color: 'rgba(255,255,255,0.3)', fontSize: '9px', marginBottom: 8 }}>GESTURE REFERENCE</p>
+                  <p style={{ ...mono, color: 'rgba(255,255,255,0.35)', fontSize: '9px', marginBottom: 6 }}>
+                    CLICK GESTURE TO TEST & RUN
+                  </p>
                   <div className="flex flex-col gap-1.5">
                     {GESTURES.map(g => (
                       <motion.button
                         key={g.name}
                         whileHover={{ x: 4 }}
-                        onClick={() => setActiveGesture(g.name)}
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg text-left cursor-pointer"
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => void executeGesture(g.name)}
+                        className="flex items-center gap-3 px-3 py-2 rounded-lg text-left cursor-pointer transition-all"
                         style={{
-                          background: g.name === activeGesture ? `${g.color}10` : 'rgba(255,255,255,0.02)',
-                          border: `1px solid ${g.name === activeGesture ? `${g.color}30` : 'transparent'}`,
+                          background: g.name === activeGesture ? `${g.color}15` : 'rgba(255,255,255,0.02)',
+                          border: `1px solid ${g.name === activeGesture ? `${g.color}40` : 'rgba(255,255,255,0.05)'}`,
                         }}
                       >
                         <span style={{ fontSize: '14px' }}>{g.icon}</span>
                         <div className="flex flex-col">
-                          <span style={{ ...mono, color: g.name === activeGesture ? g.color : 'rgba(255,255,255,0.5)', fontSize: '9px' }}>{g.name}</span>
-                          <span style={{ ...raj, color: 'rgba(255,255,255,0.3)', fontSize: '10px' }}>{g.desc}</span>
+                          <span style={{ ...mono, color: g.name === activeGesture ? g.color : 'rgba(255,255,255,0.7)', fontSize: '9px' }}>{g.name}</span>
+                          <span style={{ ...raj, color: 'rgba(255,255,255,0.4)', fontSize: '10px' }}>{g.desc}</span>
                         </div>
-                        <Zap className="w-3 h-3 ml-auto" style={{ color: g.name === activeGesture ? g.color : 'transparent' }} />
+                        <Zap className="w-3 h-3 ml-auto" style={{ color: g.name === activeGesture ? g.color : 'rgba(255,255,255,0.2)' }} />
                       </motion.button>
                     ))}
                   </div>

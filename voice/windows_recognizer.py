@@ -7,6 +7,7 @@ Windows desktop API. It never sends microphone audio to a network service.
 from __future__ import annotations
 
 import base64
+import os
 import queue
 import subprocess
 import threading
@@ -54,16 +55,22 @@ class WindowsSpeechRecognizer:
         with self._lock:
             if self.is_listening:
                 return {"ok": True, "listening": True, "message": "Voice recognition is already listening."}
-            encoded = base64.b64encode(_SCRIPT.encode("utf-16-le")).decode("ascii")
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            kwargs = {}
+            if os.name == "nt":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 0  # SW_HIDE
+                kwargs["startupinfo"] = startupinfo
             try:
+                encoded = base64.b64encode(_SCRIPT.encode("utf-16le")).decode("ascii")
                 self._process = subprocess.Popen(
-                    ["powershell", "-NoProfile", "-EncodedCommand", encoded],
+                    ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encoded],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
                     bufsize=1,
-                    creationflags=flags,
+                    **kwargs,
                 )
             except OSError as error:
                 return {"ok": False, "listening": False, "message": f"Unable to start Windows speech recognition: {error}"}

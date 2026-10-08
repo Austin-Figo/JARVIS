@@ -89,6 +89,18 @@ def _get_disk_info() -> list[dict[str, Any]]:
     return drives
 
 
+def _hidden_subprocess_kwargs() -> dict[str, Any]:
+    """Return creationflags and STARTUPINFO to guarantee zero console window popup on Windows."""
+    kwargs: dict[str, Any] = {}
+    if os.name == "nt":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0  # SW_HIDE
+        kwargs["startupinfo"] = startupinfo
+    return kwargs
+
+
 def _get_top_processes(limit: int = 10) -> list[dict[str, Any]]:
     """Get top processes by memory using tasklist."""
     try:
@@ -97,6 +109,7 @@ def _get_top_processes(limit: int = 10) -> list[dict[str, Any]]:
             capture_output=True,
             text=True,
             timeout=5,
+            **_hidden_subprocess_kwargs(),
         )
         processes = []
         for line in result.stdout.strip().split("\n"):
@@ -127,10 +140,19 @@ def _get_network_info() -> dict[str, Any]:
     try:
         # Get active interfaces
         result = subprocess.run(
-            ["powershell", "-Command", "Get-NetAdapter | Where-Object {$_.Status -eq 'Up'} | Select-Object Name, InterfaceDescription, LinkSpeed | ConvertTo-Json"],
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                "Get-NetAdapter | Where-Object {$_.Status -eq 'Up'} | Select-Object Name, InterfaceDescription, LinkSpeed | ConvertTo-Json",
+            ],
             capture_output=True,
             text=True,
             timeout=5,
+            **_hidden_subprocess_kwargs(),
         )
         if result.stdout.strip():
             adapters = json.loads(result.stdout)
@@ -200,6 +222,24 @@ def _run_system_scan() -> dict[str, Any]:
     }
 
 
+def _get_config_path() -> Path:
+    import sys
+    candidates = [
+        Path(__file__).resolve().parents[1] / "config" / "settings.json",
+    ]
+    if getattr(sys, "frozen", False):
+        if hasattr(sys, "_MEIPASS"):
+            candidates.insert(0, Path(sys._MEIPASS) / "config" / "settings.json")
+        exe_dir = Path(sys.executable).parent
+        candidates.insert(0, exe_dir / "_internal" / "config" / "settings.json")
+        candidates.insert(0, exe_dir / "config" / "settings.json")
+
+    for cand in candidates:
+        if cand.is_file():
+            return cand
+    return candidates[0]
+
+
 class JarvisCore:
     _APP_ACTIONS = {
         "notepad": ["notepad.exe"],
@@ -248,7 +288,7 @@ class JarvisCore:
                 "source": source,
             }
 
-        if "time" in normalized:
+        if any(k in normalized for k in ("what time", "current time", "tell me the time", "what's the time", "time is it", "current date", "what date", "today's date")) or normalized in ("time", "date", "clock"):
             return {
                 "ok": True,
                 "message": f"Local time: {datetime.now().strftime('%H:%M:%S')}. Date: {datetime.now().strftime('%Y-%m-%d')}.",
@@ -280,15 +320,74 @@ class JarvisCore:
                 "source": source,
             }
 
-        if normalized.startswith("open "):
-            target = normalized.removeprefix("open ").strip()
-            if target not in self._APP_ACTIONS:
-                return {"ok": False, "message": "Only Notepad, Calculator, and Explorer are available for opening.", "action": None, "source": source}
+        app_prefixes = (
+            "can you please open ", "can you open ", "please open ", "open the ", "open up ", "open ",
+            "can you please launch ", "can you launch ", "please launch ", "launch the ", "launch up ", "launch ",
+            "start the ", "start "
+        )
+        direct_system_apps = {
+            "calculator", "calc", "notepad", "paint", "mspaint", "task manager", "taskmgr",
+            "cmd", "powershell", "terminal", "snipping tool", "control panel"
+        }
+
+        matched_app_prefix = None
+        for prefix in app_prefixes:
+            if normalized.startswith(prefix):
+                matched_app_prefix = prefix
+                break
+
+        if matched_app_prefix or normalized in direct_system_apps:
+            if matched_app_prefix:
+                target = normalized[len(matched_app_prefix):].strip().rstrip(".?!")
+                if target.startswith("the "):
+                    target = target[4:].strip()
+                if target.endswith(" please"):
+                    target = target[:-7].strip()
+            else:
+                target = normalized
+
+            from actions.app_launcher import resolve_application, launch_application
+            resolved = resolve_application(target)
+            if not resolved:
+                return {
+                    "ok": False,
+                    "message": f"Could not find application '{target}' on Windows.",
+                    "action": None,
+                    "source": source,
+                }
+
+            # Check if confirmation is strictly required
+            config_path = _get_config_path()
+            require_conf = True
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    require_conf = cfg.get("require_confirmation_for_sensitive_actions", True)
+            except Exception:
+                pass
+
+            # Everyday system tools and voice commands launch directly
+            safe_direct = {
+                "calc", "calculator", "notepad", "explorer", "files", "file explorer",
+                "paint", "mspaint", "settings", "windows settings", "clock", "camera",
+                "weather", "chrome", "edge", "code", "vscode", "task manager", "taskmgr",
+                "cmd", "powershell", "terminal", "snipping tool", "control panel"
+            }
+            if not require_conf or target in safe_direct or source in ("voice", "voice-text"):
+                res = launch_application(target)
+                res["source"] = source
+                return res
+
             return {
                 "ok": True,
                 "action": "open_app",
                 "requires_confirmation": True,
-                "confirmation": {"title": f"Open {target.title()}?", "message": "JARVIS will launch this local Windows application.", "action": "open_app", "target": target},
+                "confirmation": {
+                    "title": f"Open {target.title()}?",
+                    "message": f"JARVIS will launch {target.title()} on your Windows system.",
+                    "action": "open_app",
+                    "target": target,
+                },
                 "message": f"Confirmation required before opening {target.title()}.",
                 "source": source,
             }
@@ -385,9 +484,14 @@ class JarvisCore:
             res["source"] = source
             return res
 
-        # Browser & Search actions
-        if normalized.startswith("google ") or normalized.startswith("search "):
-            query = text.split(" ", 1)[1].strip()
+        # Browser & Search actions (only open Chrome when specifically asked)
+        if normalized.startswith("google ") or normalized.startswith("search google for ") or normalized.startswith("open chrome and search "):
+            for pfx in ("search google for ", "open chrome and search ", "google "):
+                if normalized.startswith(pfx):
+                    query = text[len(pfx):].strip()
+                    break
+            else:
+                query = text.split(" ", 1)[1].strip()
             from actions.browser import search_web
             res = search_web(query, engine="google")
             res["source"] = source
@@ -404,6 +508,18 @@ class JarvisCore:
             query = text.split(" ", 1)[1].strip()
             from actions.browser import search_web
             res = search_web(query, engine="github")
+            res["source"] = source
+            return res
+
+        # Weather action
+        if normalized == "weather" or any(normalized.startswith(p) for p in ("weather in ", "weather for ", "forecast")):
+            location = ""
+            for pfx in ("weather in ", "weather for "):
+                if normalized.startswith(pfx):
+                    location = normalized[len(pfx):].strip().rstrip(".?!")
+                    break
+            from actions.weather import get_weather
+            res = get_weather(location)
             res["source"] = source
             return res
 
@@ -486,21 +602,38 @@ class JarvisCore:
             }
 
         if normalized.startswith(("run ", "exec ", "execute ")):
+            # Check if this is an app launch request, e.g. "run notepad" or "run calc"
+            app_target = normalized.split(" ", 1)[1].strip().rstrip(".?!")
+            from actions.app_launcher import resolve_application, launch_application
+            if resolve_application(app_target):
+                res = launch_application(app_target)
+                res["source"] = source
+                return res
             return {"ok": False, "message": "Arbitrary shell commands are disabled. Use a supported read-only command or 'open notepad', 'open calculator', or 'open explorer'.", "action": None, "source": source}
+
+        # Fallback to AI Provider (handles arbitrary tasks, math, web queries, RAG memory, conversations)
+        if source != "ai":
+            try:
+                from ai.provider import chat as ai_chat
+                ai_res = ai_chat(text, source=source)
+                if isinstance(ai_res, dict):
+                    ai_res["source"] = source
+                    return ai_res
+            except Exception:
+                pass
 
         return {
             "ok": True,
-            "message": f'I received "{text}". This action is not implemented yet. Say "help" for available commands.',
+            "message": f'I received "{text}". Say "help" for available commands.',
             "action": None,
             "source": source,
         }
 
     def confirm_action(self, action: str, target: str, source: str = "console") -> dict[str, Any]:
         """Execute only a pre-approved action after an explicit UI confirmation."""
-        if action != "open_app" or target not in self._APP_ACTIONS:
+        if action != "open_app":
             return {"ok": False, "message": "This confirmation request is not allowed.", "action": None, "source": source}
-        try:
-            subprocess.Popen(self._APP_ACTIONS[target])
-            return {"ok": True, "message": f"Opened {target.title()}.", "action": "open_app", "source": source}
-        except OSError as error:
-            return {"ok": False, "message": f"Unable to open {target.title()}: {error}", "action": None, "source": source}
+        from actions.app_launcher import launch_application
+        res = launch_application(target)
+        res["source"] = source
+        return res

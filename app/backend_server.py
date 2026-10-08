@@ -12,6 +12,7 @@ import mimetypes
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 from http import HTTPStatus
@@ -50,9 +51,59 @@ _SETTINGS_FIELDS = {
 _SECRET_FIELDS = {"geminiKey", "secretKey", "weatherKey", "searchId"}
 
 
+def _hidden_subprocess_kwargs() -> dict[str, Any]:
+    """Return creationflags and STARTUPINFO to guarantee zero console window popup on Windows."""
+    kwargs: dict[str, Any] = {}
+    if os.name == "nt":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0  # SW_HIDE
+        kwargs["startupinfo"] = startupinfo
+    return kwargs
+
+
+def _get_config_path() -> Path:
+    """Find settings.json in development, PyInstaller onedir, or onefile."""
+    import sys
+    candidates = [
+        Path(__file__).resolve().parents[1] / "config" / "settings.json",
+    ]
+    if getattr(sys, "frozen", False):
+        if hasattr(sys, "_MEIPASS"):
+            candidates.insert(0, Path(sys._MEIPASS) / "config" / "settings.json")
+        exe_dir = Path(sys.executable).parent
+        candidates.insert(0, exe_dir / "_internal" / "config" / "settings.json")
+        candidates.insert(0, exe_dir / "config" / "settings.json")
+
+    for cand in candidates:
+        if cand.is_file():
+            return cand
+    return candidates[0]
+
+
+def _get_frontend_dist_dir() -> Path:
+    """Find frontend/dist directory in development, PyInstaller onedir, or onefile."""
+    import sys
+    candidates = [
+        Path(__file__).resolve().parents[1] / "frontend" / "dist",
+    ]
+    if getattr(sys, "frozen", False):
+        if hasattr(sys, "_MEIPASS"):
+            candidates.insert(0, Path(sys._MEIPASS) / "frontend" / "dist")
+        exe_dir = Path(sys.executable).parent
+        candidates.insert(0, exe_dir / "_internal" / "frontend" / "dist")
+        candidates.insert(0, exe_dir / "frontend" / "dist")
+
+    for cand in candidates:
+        if cand.is_dir() and (cand / "index.html").is_file():
+            return cand
+    return candidates[0]
+
+
 def load_config() -> dict[str, Any]:
     """Load configuration from settings.json."""
-    config_path = Path(__file__).resolve().parents[1] / "config" / "settings.json"
+    config_path = _get_config_path()
     try:
         with config_path.open("r", encoding="utf-8") as f:
             saved = json.load(f)
@@ -63,7 +114,7 @@ def load_config() -> dict[str, Any]:
 
 def save_config(config: dict[str, Any]) -> bool:
     """Atomically persist configuration so an interrupted write cannot erase it."""
-    config_path = Path(__file__).resolve().parents[1] / "config" / "settings.json"
+    config_path = _get_config_path()
     try:
         temporary_path = config_path.with_suffix(".tmp")
         with temporary_path.open("w", encoding="utf-8") as f:
@@ -162,7 +213,13 @@ class SystemMetrics:
     def _network_bytes() -> tuple[int, int] | None:
         """Read aggregate interface counters without requiring administrator access."""
         try:
-            result = subprocess.run(["netstat", "-e"], capture_output=True, text=True, timeout=3)
+            result = subprocess.run(
+                ["netstat", "-e"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                **_hidden_subprocess_kwargs(),
+            )
             match = re.search(r"^Bytes\s+(\d[\d,]*)\s+(\d[\d,]*)", result.stdout, re.MULTILINE)
             if match:
                 return tuple(int(value.replace(",", "")) for value in match.groups())
@@ -182,6 +239,7 @@ class SystemMetrics:
                 capture_output=True,
                 text=True,
                 timeout=3,
+                **_hidden_subprocess_kwargs(),
             )
             values = result.stdout.strip().splitlines()
             if values:
@@ -200,10 +258,11 @@ class SystemMetrics:
         )
         try:
             result = subprocess.run(
-                ["powershell", "-NoProfile", "-Command", command],
+                ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", command],
                 capture_output=True,
                 text=True,
                 timeout=5,
+                **_hidden_subprocess_kwargs(),
             )
             match = re.search(r"[-+]?\d+(?:\.\d+)?", result.stdout)
             if match:
@@ -257,9 +316,9 @@ class SystemMetrics:
         if counters:
             self._previous_network = (counters[0], counters[1], now)
 
-        # Get-Counter is relatively expensive. Cache the GPU sample for two seconds
+        # Get-Counter is relatively expensive. Cache the GPU sample for five seconds
         # while CPU, memory, and network continue to update every second.
-        if now - self._last_gpu_sample_at >= 2:
+        if now - self._last_gpu_sample_at >= 5:
             gpu_percent, gpu_temperature = self._gpu_telemetry()
             self._last_gpu_sample_at = now
         else:
@@ -326,6 +385,11 @@ class JarvisApiServer:
         self._stopping = threading.Event()
         self._host = host
         self._port = port
+        self._wake_window_callback = None
+
+    def set_wake_callback(self, callback: Any) -> None:
+        """Register UI callback when wake event is detected."""
+        self._wake_window_callback = callback
 
     def _on_wake_detected(self, event: dict[str, Any]) -> None:
         """Handler invoked when wake phrase or clap is triggered."""
@@ -333,6 +397,11 @@ class JarvisApiServer:
         if not self.voice.is_listening:
             self.voice.start()
         self.tts.speak("At your service, sir.")
+        if self._wake_window_callback:
+            try:
+                self._wake_window_callback()
+            except Exception:
+                pass
 
     def _handler(self) -> type[BaseHTTPRequestHandler]:
         core, metrics, memory, voice, tts, wake_detector, activity_log, api_server = (
@@ -352,7 +421,7 @@ class JarvisApiServer:
                 self.wfile.write(body)
 
             def _serve_frontend(self) -> None:
-                root = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+                root = _get_frontend_dist_dir()
                 request_path = unquote(urlparse(self.path).path).lstrip("/")
                 candidate = (root / (request_path or "index.html")).resolve()
                 if root not in candidate.parents and candidate != root:
@@ -365,7 +434,23 @@ class JarvisApiServer:
                     self._send(HTTPStatus.SERVICE_UNAVAILABLE, {"ok": False, "message": "Frontend build not found. Run npm run build in frontend."})
                     return
                 body = candidate.read_bytes()
-                content_type = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
+                # Ensure correct MIME type across all Windows configurations
+                if candidate.name.endswith(".js"):
+                    content_type = "text/javascript"
+                elif candidate.name.endswith(".css"):
+                    content_type = "text/css"
+                elif candidate.name.endswith(".html"):
+                    content_type = "text/html"
+                elif candidate.name.endswith(".svg"):
+                    content_type = "image/svg+xml"
+                elif candidate.name.endswith(".json"):
+                    content_type = "application/json"
+                elif candidate.name.endswith(".png"):
+                    content_type = "image/png"
+                elif candidate.name.endswith((".woff", ".woff2")):
+                    content_type = "font/woff2" if candidate.name.endswith(".woff2") else "font/woff"
+                else:
+                    content_type = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(body)))
@@ -399,6 +484,9 @@ class JarvisApiServer:
                 try:
                     while not api_server._stopping.is_set():
                         event = voice.next_event(timeout=1.0)
+                        if event and event.get("type") == "transcript" and tts.is_speaking:
+                            # Acoustic echo suppression: ignore audio captured while JARVIS is actively speaking!
+                            continue
                         payload = event or {"type": "heartbeat", "listening": voice.is_listening}
                         self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode("utf-8"))
                         self.wfile.flush()
@@ -486,7 +574,9 @@ class JarvisApiServer:
                             str(payload.get("command", "")), str(payload.get("source", "console"))
                         )
                         activity_log.record("command", command=payload.get("command", ""), source=payload.get("source", "console"), action=result.get("action"), requires_confirmation=result.get("requires_confirmation", False), ok=result["ok"])
-                        if payload.get("source") in ("voice", "voice-text"):
+                        cfg = load_config()
+                        if payload.get("source") in ("voice", "voice-text") or cfg.get("tts_enabled", True):
+                            tts.stop()
                             tts.speak(result.get("message", ""))
                         self._send(HTTPStatus.OK if result["ok"] else HTTPStatus.BAD_REQUEST, result)
                     except (ValueError, json.JSONDecodeError):
@@ -521,12 +611,14 @@ class JarvisApiServer:
                         length = int(self.headers.get("Content-Length", "0"))
                         payload = json.loads(self.rfile.read(length) or b"{}")
                         message = str(payload.get("message", "")).strip()
-                        history = payload.get("history", [])
+                        history = payload.get("history") or None
                         if not message:
                             self._send(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Message required"})
                             return
                         result = ai_chat(message, history)
-                        if payload.get("source") in ("voice", "voice-text"):
+                        cfg = load_config()
+                        if payload.get("source") in ("voice", "voice-text") or cfg.get("tts_enabled", True):
+                            tts.stop()
                             tts.speak(result.get("message", ""))
                         self._send(HTTPStatus.OK, {"ok": result.get("ok", False), "message": result.get("message", ""), "action": result.get("action"), "data": result.get("data")})
                     except (ValueError, json.JSONDecodeError):

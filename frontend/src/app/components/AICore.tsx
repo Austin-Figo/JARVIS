@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
+import { startVoiceRecognition, stopVoiceRecognition } from '../services/jarvisApi';
 
 const orb = { fontFamily: 'Orbitron, sans-serif' };
 const mono = { fontFamily: 'Share Tech Mono, monospace' };
@@ -11,7 +12,7 @@ const stateConfig = {
     color: '#00f5ff',
     glow: 'rgba(0, 245, 255, 0.5)',
     label: 'STANDBY',
-    subLabel: 'JARVIS NEURAL CORE ONLINE',
+    subLabel: 'VOICE STANDBY — SAY "HEY JARVIS" OR CLICK TO TALK',
     pulseSpeed: 3,
     ringColor: 'rgba(0,245,255,0.4)',
   },
@@ -19,24 +20,24 @@ const stateConfig = {
     color: '#22c55e',
     glow: 'rgba(34, 197, 94, 0.6)',
     label: 'LISTENING',
-    subLabel: 'VOICE RECOGNITION ACTIVE',
+    subLabel: 'MICROPHONE ACTIVE — SPEAK TO JARVIS NOW',
     pulseSpeed: 0.8,
     ringColor: 'rgba(34,197,94,0.5)',
   },
   processing: {
     color: '#f59e0b',
     glow: 'rgba(245, 158, 11, 0.6)',
-    label: 'PROCESSING',
-    subLabel: 'NEURAL ANALYSIS IN PROGRESS',
+    label: 'THINKING',
+    subLabel: 'GEMINI NEURAL CORE REASONING',
     pulseSpeed: 0.4,
     ringColor: 'rgba(245,158,11,0.5)',
   },
   responding: {
     color: '#a855f7',
     glow: 'rgba(168, 85, 247, 0.6)',
-    label: 'RESPONDING',
-    subLabel: 'GENERATING OUTPUT STREAM',
-    pulseSpeed: 0.6,
+    label: 'SPEAKING',
+    subLabel: 'VOICE SYNTHESIS & RESPONSE ACTIVE',
+    pulseSpeed: 0.5,
     ringColor: 'rgba(168,85,247,0.5)',
   },
 };
@@ -80,10 +81,13 @@ function Ring({
 }
 
 export function AICore() {
-  const { aiState, setAiState, setScanningActive, addNotification } = useApp();
+  const { aiState, setAiState, addNotification, messages } = useApp();
   const cfg = stateConfig[aiState];
-  const [clickCount, setClickCount] = useState(0);
   const [dataPoints, setDataPoints] = useState<{ x: number; y: number; val: string }[]>([]);
+
+  // Find the latest AI reply and user question
+  const latestAiMsg = [...messages].reverse().find(m => m.type === 'ai');
+  const latestUserMsg = [...messages].reverse().find(m => m.type === 'user');
 
   useEffect(() => {
     const pts = Array(8).fill(0).map((_, i) => {
@@ -104,13 +108,25 @@ export function AICore() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleClick = () => {
-    const states: (typeof aiState)[] = ['idle', 'listening', 'processing', 'responding'];
-    const next = states[(states.indexOf(aiState) + 1) % states.length];
-    setAiState(next);
-    setClickCount(c => c + 1);
-    if (next === 'listening') {
-      addNotification({ type: 'success', title: 'Voice Active', message: 'Microphone is now listening for commands.' });
+  const handleClick = async () => {
+    if (aiState === 'listening') {
+      try {
+        await stopVoiceRecognition();
+        setAiState('idle');
+        addNotification({ type: 'info', title: 'Voice Standby', message: 'Microphone on standby. Say "Hey Jarvis" or click to speak.' });
+      } catch {
+        setAiState('idle');
+      }
+    } else {
+      try {
+        const res = await startVoiceRecognition();
+        if (res.ok) {
+          setAiState('listening');
+          addNotification({ type: 'success', title: 'Listening Active', message: 'Microphone listening! Speak to JARVIS now.' });
+        }
+      } catch {
+        addNotification({ type: 'error', title: 'Voice', message: 'Microphone currently unavailable.' });
+      }
     }
   };
 
@@ -276,13 +292,42 @@ export function AICore() {
           ))}
         </div>
 
+        {/* Dynamic Holographic Speech / Response Bubble */}
+        <AnimatePresence>
+          {latestAiMsg && (
+            <motion.div
+              key={latestAiMsg.id}
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 5 }}
+              transition={{ duration: 0.3 }}
+              className="max-w-lg text-center px-5 py-3 rounded-2xl flex flex-col items-center gap-1.5"
+              style={{
+                background: 'rgba(0, 10, 28, 0.85)',
+                border: `1px solid ${cfg.color}35`,
+                boxShadow: `0 0 25px ${cfg.color}20`,
+                backdropFilter: 'blur(16px)',
+              }}
+            >
+              {latestUserMsg && (
+                <span style={{ ...mono, color: 'rgba(0, 245, 255, 0.6)', fontSize: '10px' }}>
+                  YOU: "{latestUserMsg.text}"
+                </span>
+              )}
+              <p style={{ ...raj, color: '#ffffff', fontSize: '13px', lineHeight: '1.4', fontWeight: 500 }}>
+                {latestAiMsg.text}
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Click hint */}
         <motion.p
-          animate={{ opacity: [0.3, 0.6, 0.3] }}
-          transition={{ duration: 3, repeat: Infinity }}
-          style={{ ...raj, color: 'rgba(0,245,255,0.4)', fontSize: '11px', marginTop: 4 }}
+          animate={{ opacity: [0.35, 0.85, 0.35] }}
+          transition={{ duration: 2.2, repeat: Infinity }}
+          style={{ ...raj, color: cfg.color, fontSize: '12px', marginTop: 4, letterSpacing: '0.08em' }}
         >
-          CLICK ORB TO CYCLE STATE
+          {aiState === 'listening' ? '● MICROPHONE LISTENING — CLICK TO PAUSE' : 'CLICK ORB OR SAY "HEY JARVIS" TO TALK'}
         </motion.p>
       </div>
     </div>
