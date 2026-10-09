@@ -145,6 +145,22 @@ export function sendCommand(command: string, source = 'console') {
   });
 }
 
+export interface ChatResult {
+  ok: boolean;
+  message: string;
+  action: 'scan' | 'status' | 'time' | 'settings' | 'apps' | 'gesture' | 'help' | null;
+  data?: unknown;
+  requires_confirmation?: boolean;
+  confirmation?: { title: string; message: string; action: string; target: string };
+}
+
+export function sendChatMessage(message: string, history?: { role: string; content: string }[], source = 'voice') {
+  return requestWithRetry<ChatResult>('/api/chat', {
+    method: 'POST',
+    body: JSON.stringify({ message, history, source }),
+  });
+}
+
 export function confirmCommand(action: string, target: string, source = 'console') {
   return requestWithRetry<CommandResult>('/api/commands/confirm', { method: 'POST', body: JSON.stringify({ action, target, source }) });
 }

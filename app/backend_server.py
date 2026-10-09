@@ -396,7 +396,7 @@ class JarvisApiServer:
         self.voice._events.put(event)
         if not self.voice.is_listening:
             self.voice.start()
-        self.tts.speak("At your service, sir.")
+        self.tts.speak("Yes, sir?")
         if self._wake_window_callback:
             try:
                 self._wake_window_callback()
@@ -484,9 +484,12 @@ class JarvisApiServer:
                 try:
                     while not api_server._stopping.is_set():
                         event = voice.next_event(timeout=1.0)
-                        if event and event.get("type") == "transcript" and tts.is_speaking:
-                            # Acoustic echo suppression: ignore audio captured while JARVIS is actively speaking!
-                            continue
+                        if event and event.get("type") == "transcript":
+                            text_lower = str(event.get("text", "")).lower().strip()
+                            last_spoken = getattr(tts, "last_spoken", "").lower().strip()
+                            # Acoustic echo suppression: only drop if it echoes what JARVIS is currently speaking
+                            if tts.is_speaking and last_spoken and (text_lower in last_spoken or last_spoken in text_lower):
+                                continue
                         payload = event or {"type": "heartbeat", "listening": voice.is_listening}
                         self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode("utf-8"))
                         self.wfile.flush()

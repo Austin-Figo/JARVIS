@@ -19,6 +19,19 @@ Add-Type -AssemblyName System.Speech
 $engine = New-Object System.Speech.Recognition.SpeechRecognitionEngine
 $engine.SetInputToDefaultAudioDevice()
 $engine.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
+
+try {
+  $engine.InitialSilenceTimeout = [TimeSpan]::FromSeconds(8)
+  $engine.EndSilenceTimeout = [TimeSpan]::FromSeconds(1.2)
+  $engine.EndSilenceTimeoutAmbiguous = [TimeSpan]::FromSeconds(1.0)
+} catch {}
+
+$engine.add_SpeechDetected({
+  param($sender, $event)
+  [Console]::Out.WriteLine("SPEECH_START")
+  [Console]::Out.Flush()
+})
+
 $engine.add_SpeechRecognized({
   param($sender, $event)
   if ($event.Result.Text) {
@@ -104,6 +117,8 @@ class WindowsSpeechRecognizer:
             line = raw_line.strip()
             if line == "READY":
                 self._events.put({"type": "status", "listening": True, "message": "Microphone ready."})
+            elif line == "SPEECH_START":
+                self._events.put({"type": "speech_start", "message": "Speech detected."})
             elif line.startswith("RESULT:"):
                 self._events.put({"type": "transcript", "text": line.removeprefix("RESULT:").strip()})
             elif line.startswith("ERROR:"):

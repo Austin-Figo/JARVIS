@@ -293,8 +293,30 @@ export function AICore() {
         </div>
 
         {/* Dynamic Holographic Speech / Response Bubble */}
-        <AnimatePresence>
-          {latestAiMsg && (
+        <AnimatePresence mode="wait">
+          {aiState === 'processing' && latestUserMsg ? (
+            <motion.div
+              key="processing-bubble"
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 5 }}
+              transition={{ duration: 0.2 }}
+              className="max-w-lg text-center px-5 py-3 rounded-2xl flex flex-col items-center gap-1.5"
+              style={{
+                background: 'rgba(0, 10, 28, 0.85)',
+                border: '1px solid rgba(245, 158, 11, 0.35)',
+                boxShadow: '0 0 25px rgba(245, 158, 11, 0.2)',
+                backdropFilter: 'blur(16px)',
+              }}
+            >
+              <span style={{ ...mono, color: 'rgba(245, 158, 11, 0.85)', fontSize: '10px' }}>
+                YOU: "{latestUserMsg.text}"
+              </span>
+              <p style={{ ...raj, color: '#f59e0b', fontSize: '13px', lineHeight: '1.4', fontWeight: 500 }}>
+                Processing and thinking...
+              </p>
+            </motion.div>
+          ) : latestAiMsg ? (
             <motion.div
               key={latestAiMsg.id}
               initial={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -318,7 +340,7 @@ export function AICore() {
                 {latestAiMsg.text}
               </p>
             </motion.div>
-          )}
+          ) : null}
         </AnimatePresence>
 
         {/* Click hint */}

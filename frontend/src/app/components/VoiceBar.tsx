@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Mic, Type, Volume2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { getApiBaseUrl, sendCommand, startVoiceRecognition, stopVoiceRecognition } from '../services/jarvisApi';
+import { getApiBaseUrl, sendChatMessage, startVoiceRecognition, stopVoiceRecognition } from '../services/jarvisApi';
 
 const mono = { fontFamily: 'Share Tech Mono, monospace' };
 const raj = { fontFamily: 'Rajdhani, sans-serif' };
@@ -16,17 +16,46 @@ export function VoiceBar() {
   const [transcript, setTranscript] = useState('');
   const [voiceConnected, setVoiceConnected] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastProcessedRef = useRef<{ text: string; time: number }>({ text: '', time: 0 });
   const isListening = aiState === 'listening';
   const isProcessing = aiState === 'processing' || aiState === 'responding';
 
   const runCommand = useCallback(async (text: string, source: 'voice' | 'voice-text') => {
-    const command = text.trim();
+    let command = text.trim();
     if (!command) return;
+
+    // Filter wake words if user spoke e.g. "Hey Jarvis what is the time"
+    const lower = command.toLowerCase();
+    for (const pfx of ['hey jarvis,', 'hey jarvis', 'he jarvis,', 'he jarvis', 'hi jarvis,', 'hi jarvis', 'jarvis,', 'jarvis']) {
+      if (lower.startsWith(pfx)) {
+        const stripped = command.slice(pfx.length).replace(/^[,\s]+/, '').trim();
+        if (stripped) {
+          command = stripped;
+        } else {
+          // Just wake phrase alone
+          setAiState('listening');
+          addMessage({ type: 'user', text: command });
+          addMessage({ type: 'ai', text: 'Online and listening, sir. What can I do for you?' });
+          return;
+        }
+        break;
+      }
+    }
+
+    // Debounce to prevent dual-engine (backend + web speech) duplicate execution
+    const now = Date.now();
+    if (lastProcessedRef.current.text === command.toLowerCase() && now - lastProcessedRef.current.time < 2000) {
+      return;
+    }
+    lastProcessedRef.current = { text: command.toLowerCase(), time: now };
+
     setTranscript(command);
     addMessage({ type: 'user', text: command });
+    // Switch to PROCESSING / THINKING mode immediately once user is done speaking
     setAiState('processing');
+
     try {
-      const response = await sendCommand(command, source);
+      const response = await sendChatMessage(command, undefined, source);
       addMessage({ type: 'ai', text: response.message });
       if (response.requires_confirmation && response.confirmation) {
         setPendingConfirmation({ ...response.confirmation, source });
@@ -36,6 +65,8 @@ export function VoiceBar() {
       if (response.action === 'settings') setSettingsOpen(true);
       if (response.action === 'apps') setAppGridOpen(true);
       if (response.action === 'gesture') setGestureOpen(true);
+
+      // Switch to RESPONDING / SPEAKING mode while answering
       setAiState('responding');
       const spokenDuration = Math.min(Math.max((response.message?.length || 20) * 60, 2500), 8000);
       setTimeout(() => {
@@ -49,6 +80,7 @@ export function VoiceBar() {
     }
   }, [addMessage, addNotification, setAiState, setAppGridOpen, setGestureOpen, setPendingConfirmation, setScanningActive, setSettingsOpen, voiceConnected]);
 
+  // Backend SSE Stream Listener
   useEffect(() => {
     const stream = new EventSource(`${getApiBaseUrl()}/api/voice/stream`);
     stream.onmessage = event => {
@@ -56,11 +88,20 @@ export function VoiceBar() {
         const data = JSON.parse(event.data) as { type: string; text?: string; message?: string; listening?: boolean };
         if (data.type === 'status') {
           setVoiceConnected(Boolean(data.listening));
-          if (data.listening) setAiState('listening');
+          if (data.listening && aiState !== 'processing' && aiState !== 'responding') {
+            setAiState('listening');
+          }
         } else if (data.type === 'wake') {
           setVoiceConnected(true);
           setAiState('listening');
-          addNotification({ type: 'info', title: 'Wake Detected', message: `Triggered: ${(data as any).phrase || "Daddy's home"}` });
+          const phrase = (data as any).phrase || 'Hey Jarvis';
+          addMessage({ type: 'user', text: phrase });
+          addMessage({ type: 'ai', text: 'Online and listening, sir. Go ahead.' });
+          addNotification({ type: 'info', title: 'Wake Detected', message: `Triggered: ${phrase}` });
+        } else if (data.type === 'speech_start') {
+          if (aiState !== 'processing' && aiState !== 'responding') {
+            setAiState('listening');
+          }
         } else if (data.type === 'transcript' && data.text) {
           void runCommand(data.text, 'voice');
         } else if (data.type === 'error') {
@@ -74,7 +115,77 @@ export function VoiceBar() {
     };
     stream.onerror = () => setVoiceConnected(false);
     return () => stream.close();
-  }, [addNotification, runCommand, setAiState]);
+  }, [addMessage, addNotification, aiState, runCommand, setAiState]);
+
+  // In-Browser Web Speech API Listener (if supported in current environment)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    let recognition: any = null;
+    let active = true;
+
+    try {
+      recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        setVoiceConnected(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        let interim = '';
+        let final = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const item = event.results[i];
+          if (item.isFinal) {
+            final += item[0].transcript;
+          } else {
+            interim += item[0].transcript;
+          }
+        }
+
+        if (interim) {
+          setTranscript(interim);
+          const lower = interim.toLowerCase();
+          if (lower.includes('hey jarvis') || lower.includes('he jarvis') || lower.includes('hi jarvis')) {
+            if (aiState !== 'listening' && aiState !== 'processing') {
+              setAiState('listening');
+            }
+          }
+        }
+
+        if (final) {
+          const trimmed = final.trim();
+          setTranscript(trimmed);
+          void runCommand(trimmed, 'voice');
+        }
+      };
+
+      recognition.onerror = () => {};
+      recognition.onend = () => {
+        if (active) {
+          setTimeout(() => {
+            if (active) {
+              try { recognition.start(); } catch {}
+            }
+          }, 350);
+        }
+      };
+
+      recognition.start();
+    } catch {}
+
+    return () => {
+      active = false;
+      if (recognition) {
+        try { recognition.stop(); } catch {}
+      }
+    };
+  }, [aiState, runCommand]);
 
   useEffect(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);

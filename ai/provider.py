@@ -149,7 +149,18 @@ class AIProvider:
         return base
 
     def chat(self, message: str, history: List[Dict[str, Any]] | None = None, source: str = "console") -> Dict[str, Any]:
-        """Send a message to the LLM and get a response with RAG and action handling."""
+        # Strip conversational wake prefix if user spoke "Hey Jarvis, ..."
+        clean_msg = message.strip()
+        clean_lower = clean_msg.lower()
+        for pfx in ("hey jarvis,", "hey jarvis", "he jarvis,", "he jarvis", "hi jarvis,", "hi jarvis", "jarvis,", "jarvis"):
+            if clean_lower.startswith(pfx):
+                stripped = clean_msg[len(pfx):].strip().lstrip(",").strip()
+                if stripped:
+                    message = stripped
+                else:
+                    return {"ok": True, "message": "At your service, sir. What can I help you with?", "action": None, "source": source}
+                break
+
         # 1. Quick intent check for local commands or memory management
         direct_resp = self._check_direct_intents(message)
         if direct_resp:

@@ -263,6 +263,17 @@ class JarvisCore:
         text = command.strip()
         normalized = text.lower()
 
+        # Handle and strip conversational wake prefixes
+        for pfx in ("hey jarvis,", "hey jarvis", "he jarvis,", "he jarvis", "hi jarvis,", "hi jarvis", "jarvis,", "jarvis"):
+            if normalized.startswith(pfx):
+                stripped = text[len(pfx):].strip().lstrip(",").strip()
+                if stripped:
+                    text = stripped
+                    normalized = text.lower()
+                else:
+                    return {"ok": True, "message": "At your service, sir. How can I assist you?", "action": None, "source": source}
+                break
+
         if not text:
             return {"ok": False, "message": "Please enter a command.", "action": None}
 

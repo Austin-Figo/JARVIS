@@ -23,10 +23,25 @@ $engine.SetInputToDefaultAudioDevice()
 # Build targeted grammar for wake phrases
 $builder = New-Object System.Speech.Recognition.GrammarBuilder
 $choices = New-Object System.Speech.Recognition.Choices
-$choices.Add([string[]]@("Hey Jarvis", "hey Jarvis", "hey jarvis", "Jarvis", "jarvis", "Daddy's home", "daddy's home", "Wake up Jarvis", "wake up jarvis", "Hello Jarvis", "hello jarvis", "Ok Jarvis", "Okay Jarvis"))
+$choices.Add([string[]]@(
+    "Hey Jarvis", "hey Jarvis", "hey jarvis",
+    "He Jarvis", "he Jarvis", "he jarvis",
+    "Hi Jarvis", "hi Jarvis", "hi jarvis",
+    "Jarvis", "jarvis",
+    "Daddy's home", "daddy's home",
+    "Wake up Jarvis", "wake up jarvis",
+    "Hello Jarvis", "hello jarvis",
+    "Ok Jarvis", "Okay Jarvis"
+))
 $builder.Append($choices)
 $grammar = New-Object System.Speech.Recognition.Grammar($builder)
 $engine.LoadGrammar($grammar)
+
+try {
+    $engine.InitialSilenceTimeout = [TimeSpan]::FromSeconds(8)
+    $engine.EndSilenceTimeout = [TimeSpan]::FromSeconds(0.8)
+    $engine.EndSilenceTimeoutAmbiguous = [TimeSpan]::FromSeconds(0.6)
+} catch {}
 
 # Audio level tracking disabled to prevent background noise false-triggers
 

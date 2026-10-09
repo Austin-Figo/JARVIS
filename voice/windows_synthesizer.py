@@ -55,6 +55,7 @@ class WindowsSpeechSynthesizer:
         self._lock = threading.Lock()
         self._running = False
         self._is_speaking = False
+        self._last_spoken = ""
         self._active_voice: str | None = None
         self._rate = 0  # -10 to 10
         self._volume = 100  # 0 to 100
@@ -63,6 +64,10 @@ class WindowsSpeechSynthesizer:
     @property
     def is_speaking(self) -> bool:
         return self._is_speaking
+
+    @property
+    def last_spoken(self) -> str:
+        return self._last_spoken
 
     def _start_engine(self) -> bool:
         """Start the background speech synthesis process."""
@@ -117,6 +122,7 @@ class WindowsSpeechSynthesizer:
             try:
                 self._is_speaking = True
                 clean_text = text.replace("\r", " ").replace("\n", " ").strip()
+                self._last_spoken = clean_text
                 if self._process.stdin:
                     self._process.stdin.write(f"RATE:{rate}\n")
                     self._process.stdin.write(f"VOLUME:{volume}\n")
