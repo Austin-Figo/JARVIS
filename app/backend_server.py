@@ -429,6 +429,10 @@ class JarvisApiServer:
                     return
                 # Client-side routes are served by React's index page.
                 if not candidate.is_file():
+                    # If this is a static asset request with an extension, return 404 so script parsers are not corrupted
+                    if "." in Path(request_path).name:
+                        self._send(HTTPStatus.NOT_FOUND, {"ok": False, "message": f"Asset '{request_path}' not found."})
+                        return
                     candidate = root / "index.html"
                 if not candidate.is_file():
                     self._send(HTTPStatus.SERVICE_UNAVAILABLE, {"ok": False, "message": "Frontend build not found. Run npm run build in frontend."})
