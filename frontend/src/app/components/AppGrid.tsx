@@ -6,6 +6,7 @@ import {
   Calendar, Clock, Package, Database, Shield, Star
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { sendCommand, startVoiceRecognition } from '../services/jarvisApi';
 
 const orb = { fontFamily: 'Orbitron, sans-serif' };
 const mono = { fontFamily: 'Share Tech Mono, monospace' };
@@ -46,19 +47,189 @@ const APPS = [
 const CATEGORIES = ['All', 'System', 'AI', 'Media', 'Comms', 'Tools'];
 
 export function AppGrid() {
-  const { appGridOpen, setAppGridOpen, setSettingsOpen, addNotification } = useApp();
+  const {
+    appGridOpen, setAppGridOpen,
+    setSettingsOpen, setLeftPanel, setRightPanel,
+    setScanningActive, setGestureOpen, setAiState,
+    addNotification, addMessage
+  } = useApp();
   const [activeCategory, setActiveCategory] = useState('All');
   const [hoveredApp, setHoveredApp] = useState<string | null>(null);
 
   const filtered = APPS.filter(a => activeCategory === 'All' || a.cat === activeCategory);
 
-  const handleAppClick = (app: typeof APPS[0]) => {
-    if (app.id === 'settings') {
-      setSettingsOpen(true);
-      setAppGridOpen(false);
-    } else {
-      addNotification({ type: 'info', title: `${app.name} Launched`, message: `${app.name} is initializing...` });
-      setAppGridOpen(false);
+  const handleAppClick = async (app: typeof APPS[0]) => {
+    setAppGridOpen(false);
+    switch (app.id) {
+      case 'terminal':
+        setRightPanel('console');
+        addNotification({ type: 'info', title: 'Terminal', message: 'Opening Windows Terminal...' });
+        try {
+          const res = await sendCommand('open terminal', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {
+          addNotification({ type: 'error', title: 'Terminal', message: 'Unable to launch terminal.' });
+        }
+        break;
+      case 'settings':
+        setSettingsOpen(true);
+        break;
+      case 'monitor':
+        setLeftPanel('monitor');
+        addNotification({ type: 'info', title: 'Telemetry', message: 'System Monitor activated.' });
+        break;
+      case 'security':
+        setScanningActive(true);
+        addNotification({ type: 'info', title: 'Security Scan', message: 'Initiating full security diagnostics...' });
+        try {
+          const res = await sendCommand('scan', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {}
+        break;
+      case 'storage':
+      case 'files':
+        addNotification({ type: 'info', title: 'File Explorer', message: 'Opening Windows Explorer...' });
+        try {
+          const res = await sendCommand('open explorer', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {
+          addNotification({ type: 'error', title: 'Files', message: 'Unable to open explorer.' });
+        }
+        break;
+      case 'network':
+        setLeftPanel('monitor');
+        addNotification({ type: 'info', title: 'Network Telemetry', message: 'Inspecting network adapters...' });
+        try {
+          const res = await sendCommand('status', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {}
+        break;
+      case 'nexus':
+        setAiState('listening');
+        addNotification({ type: 'success', title: 'JARVIS Core', message: 'Online and listening through microphone.' });
+        try {
+          await startVoiceRecognition();
+        } catch {}
+        break;
+      case 'vision':
+        setGestureOpen(true);
+        addNotification({ type: 'info', title: 'AI Vision', message: 'Activating Vision HUD and camera telemetry...' });
+        break;
+      case 'analyze':
+        setScanningActive(true);
+        addNotification({ type: 'info', title: 'Deep Analysis', message: 'Running system-wide spectrum analysis...' });
+        try {
+          const res = await sendCommand('scan', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {}
+        break;
+      case 'code':
+        addNotification({ type: 'info', title: 'VS Code', message: 'Launching Visual Studio Code...' });
+        try {
+          const res = await sendCommand('open code', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {
+          addNotification({ type: 'error', title: 'Code AI', message: 'Unable to open VS Code.' });
+        }
+        break;
+      case 'memory':
+      case 'starred':
+        setLeftPanel('memory');
+        addNotification({ type: 'info', title: 'Memory Core', message: 'Accessing memory database...' });
+        break;
+      case 'encrypt':
+        addNotification({ type: 'info', title: 'Security Vault', message: 'Verifying encryption protocols...' });
+        try {
+          const res = await sendCommand('scan', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {}
+        break;
+      case 'browser':
+        addNotification({ type: 'info', title: 'Browser', message: 'Opening web browser...' });
+        try {
+          const res = await sendCommand('open chrome', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {
+          addNotification({ type: 'error', title: 'Browser', message: 'Unable to open browser.' });
+        }
+        break;
+      case 'music':
+        addNotification({ type: 'info', title: 'Media', message: 'Toggling media playback...' });
+        try {
+          const res = await sendCommand('play pause', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {
+          addNotification({ type: 'error', title: 'Media', message: 'Unable to toggle media.' });
+        }
+        break;
+      case 'video':
+        addNotification({ type: 'info', title: 'Video Stream', message: 'Opening YouTube video portal...' });
+        try {
+          const res = await sendCommand('search youtube', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {}
+        break;
+      case 'maps':
+        addNotification({ type: 'info', title: 'Satellite Maps', message: 'Opening global satellite mapping...' });
+        try {
+          const res = await sendCommand('search google maps', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {}
+        break;
+      case 'mail':
+        addNotification({ type: 'info', title: 'Mail Client', message: 'Launching system mail client...' });
+        try {
+          const res = await sendCommand('open mail', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {
+          addNotification({ type: 'error', title: 'Mail', message: 'Unable to launch mail.' });
+        }
+        break;
+      case 'call':
+        addNotification({ type: 'info', title: 'Comms', message: 'Launching communication interface...' });
+        try {
+          const res = await sendCommand('open discord', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {
+          addNotification({ type: 'error', title: 'Comms', message: 'Unable to launch Discord.' });
+        }
+        break;
+      case 'cloud':
+        addNotification({ type: 'info', title: 'Cloud Storage', message: 'Opening Cloud Storage portal...' });
+        try {
+          const res = await sendCommand('search google drive', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {}
+        break;
+      case 'calendar':
+        addNotification({ type: 'info', title: 'Calendar', message: 'Opening Calendar...' });
+        try {
+          const res = await sendCommand('open calendar', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {
+          addNotification({ type: 'error', title: 'Calendar', message: 'Unable to open calendar.' });
+        }
+        break;
+      case 'clock':
+        addNotification({ type: 'info', title: 'ChronOS Clock', message: 'Checking system time & synchronization...' });
+        try {
+          const res = await sendCommand('time', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {}
+        break;
+      case 'power':
+        addNotification({ type: 'info', title: 'Power Subsystem', message: 'Querying battery and power status...' });
+        try {
+          const res = await sendCommand('power status', 'apps');
+          addMessage({ type: 'ai', text: res.message });
+        } catch {}
+        break;
+      default:
+        addNotification({ type: 'info', title: `${app.name} Launched`, message: `${app.name} initialization request dispatched.` });
+        try {
+          await sendCommand(`open ${app.name.toLowerCase()}`, 'apps');
+        } catch {}
+        break;
     }
   };
 

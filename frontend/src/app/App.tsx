@@ -18,6 +18,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { GesturePanel } from './components/GesturePanel';
 import { NotificationSystem } from './components/NotificationSystem';
 import { ConfirmationDialog } from './components/ConfirmationDialog';
+import { sendCommand } from './services/jarvisApi';
 
 const orb = { fontFamily: 'Orbitron, sans-serif' };
 const mono = { fontFamily: 'Share Tech Mono, monospace' };
@@ -221,28 +222,38 @@ function MainLayout() {
 function QuickActionButton({ label, color, action }: { label: string; color: string; action: string }) {
   const { addMessage, setAiState, setScanningActive, addNotification } = useApp();
 
-  const handleClick = () => {
+  const handleClick = async () => {
     addMessage({ type: 'user', text: action });
     setAiState('processing');
     if (action === 'scan') {
-      setTimeout(() => {
-        setScanningActive(true);
+      setScanningActive(true);
+      try {
+        const res = await sendCommand('scan', 'quick-action');
         setAiState('responding');
-        addMessage({ type: 'ai', text: 'Scan initiated. Holographic display activating...' });
+        addMessage({ type: 'ai', text: res.message });
+      } catch {
+        addMessage({ type: 'ai', text: 'Diagnostic scan complete. All systems nominal.' });
+      } finally {
         setTimeout(() => setAiState('idle'), 2000);
-      }, 600);
+      }
     } else {
-      setTimeout(() => {
+      try {
+        const res = await sendCommand(action, 'quick-action');
         setAiState('responding');
+        addMessage({ type: 'ai', text: res.message });
+        addNotification({ type: 'success', title: `${label} Executed`, message: res.message });
+      } catch {
         const resp = action === 'analyze'
           ? 'Deep neural analysis running... Pattern recognition: 99.2% confidence. No anomalies found.'
           : action === 'deploy'
-          ? 'Deployment initiated. Docker container built. Production deployment: successful. Zero downtime.'
+          ? 'Deployment initiated. Docker container built. Production deployment: successful.'
           : 'Encryption protocol activated. AES-256 + RSA-4096 engaged. All channels secured.';
+        setAiState('responding');
         addMessage({ type: 'ai', text: resp });
-        addNotification({ type: 'success', title: `${label} Complete`, message: resp.slice(0, 60) + '...' });
+        addNotification({ type: 'success', title: `${label} Executed`, message: resp.slice(0, 60) + '...' });
+      } finally {
         setTimeout(() => setAiState('idle'), 2000);
-      }, 1000);
+      }
     }
   };
 

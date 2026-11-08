@@ -67,11 +67,36 @@ function TypingText({ text, onDone }: { text: string; onDone?: () => void }) {
 }
 
 export function CommandConsole() {
-  const { messages, addMessage, setAiState, setScanningActive, setSettingsOpen, setAppGridOpen, setGestureOpen, addNotification, setPendingConfirmation } = useApp();
+  const { messages, addMessage, clearMessages, setAiState, setScanningActive, setSettingsOpen, setAppGridOpen, setGestureOpen, addNotification, setPendingConfirmation } = useApp();
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = () => {
+    if (messages.length === 0) {
+      addNotification({ type: 'warning', title: 'Export Failed', message: 'No conversation messages to export.' });
+      return;
+    }
+    const transcript = messages
+      .map(m => `[${new Date(m.timestamp).toLocaleTimeString()}] ${m.type.toUpperCase()}: ${m.text}`)
+      .join('\n\n');
+    const blob = new Blob([transcript], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `jarvis_console_transcript_${Date.now()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    addNotification({ type: 'success', title: 'Transcript Exported', message: 'Console history downloaded successfully.' });
+  };
+
+  const handleClear = () => {
+    clearMessages();
+    addNotification({ type: 'info', title: 'Console Cleared', message: 'Conversation history reset.' });
+  };
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -123,18 +148,22 @@ export function CommandConsole() {
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
+            onClick={handleExport}
+            title="Export conversation logs"
             className="p-1.5 rounded-lg cursor-pointer"
             style={{ background: 'rgba(0,245,255,0.05)', border: '1px solid rgba(0,245,255,0.12)' }}
           >
-            <Download className="w-3 h-3" style={{ color: 'rgba(0,245,255,0.5)' }} />
+            <Download className="w-3 h-3" style={{ color: 'rgba(0,245,255,0.7)' }} />
           </motion.button>
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
+            onClick={handleClear}
+            title="Clear conversation history"
             className="p-1.5 rounded-lg cursor-pointer"
-            style={{ background: 'rgba(0,245,255,0.05)', border: '1px solid rgba(0,245,255,0.12)' }}
+            style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
           >
-            <Trash2 className="w-3 h-3" style={{ color: 'rgba(0,245,255,0.5)' }} />
+            <Trash2 className="w-3 h-3" style={{ color: '#ef4444' }} />
           </motion.button>
         </div>
       </div>

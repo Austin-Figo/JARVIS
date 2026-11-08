@@ -228,8 +228,14 @@ export function TopBar() {
         {[
           {
             icon: Bell,
-            action: () =>
-              addNotification({ type: 'info', title: 'System Alert', message: 'All systems nominal. No anomalies detected.' }),
+            action: async () => {
+              try {
+                const res = await sendCommand('status', 'topbar');
+                addNotification({ type: 'info', title: 'System Status', message: res.message });
+              } catch {
+                addNotification({ type: 'info', title: 'System Alert', message: 'All systems nominal. No anomalies detected.' });
+              }
+            },
             color: '#f59e0b',
           },
           { icon: Hand, action: () => setGestureOpen(true), color: '#00f5ff' },

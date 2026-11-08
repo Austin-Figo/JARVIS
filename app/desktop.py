@@ -12,6 +12,7 @@ import ctypes.wintypes
 from PySide6.QtCore import QTimer, QUrl, Qt, QThread, Signal
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QSystemTrayIcon, QMenu
 from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QPen, QIcon
+from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from app.backend_server import start_api_server, get_frontend_config, get_api_config, _get_config_path
@@ -148,6 +149,7 @@ class JarvisWindow(QMainWindow):
         self._frontend_url = QUrl(frontend_url)
         # Avoid white flash: initialize canvas with dark space background
         self.browser.page().setBackgroundColor(QColor(10, 15, 25))
+        self.browser.page().featurePermissionRequested.connect(self._handle_feature_permission)
         self.browser.loadFinished.connect(self._on_load_finished)
         self.browser.load(self._frontend_url)
         self.setCentralWidget(self.browser)
@@ -211,6 +213,13 @@ class JarvisWindow(QMainWindow):
         else:
             self.raise_()
             self.activateWindow()
+
+    def _handle_feature_permission(self, security_origin, feature):
+        self.browser.page().setFeaturePermission(
+            security_origin,
+            feature,
+            QWebEnginePage.PermissionPolicy.PermissionGrantedByUser,
+        )
 
     def _on_load_finished(self, loaded: bool) -> None:
         if self._on_ready:

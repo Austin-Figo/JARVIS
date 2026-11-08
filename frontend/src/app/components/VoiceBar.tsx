@@ -85,20 +85,26 @@ export function VoiceBar() {
     const stream = new EventSource(`${getApiBaseUrl()}/api/voice/stream`);
     stream.onmessage = event => {
       try {
-        const data = JSON.parse(event.data) as { type: string; text?: string; message?: string; listening?: boolean };
-        if (data.type === 'status') {
-          setVoiceConnected(Boolean(data.listening));
-          if (data.listening && aiState !== 'processing' && aiState !== 'responding') {
+        const data = JSON.parse(event.data) as { type: string; text?: string; message?: string; listening?: boolean; phrase?: string };
+        if (data.type === 'status' || data.type === 'heartbeat') {
+          const listening = Boolean(data.listening);
+          setVoiceConnected(listening);
+          if (listening && aiState !== 'processing' && aiState !== 'responding') {
             setAiState('listening');
           }
         } else if (data.type === 'wake') {
           setVoiceConnected(true);
           setAiState('listening');
-          const phrase = (data as any).phrase || 'Hey Jarvis';
+          const phrase = data.phrase || 'Hey Jarvis';
           addMessage({ type: 'user', text: phrase });
           addMessage({ type: 'ai', text: 'Online and listening, sir. Go ahead.' });
           addNotification({ type: 'info', title: 'Wake Detected', message: `Triggered: ${phrase}` });
         } else if (data.type === 'speech_start') {
+          if (aiState !== 'processing' && aiState !== 'responding') {
+            setAiState('listening');
+          }
+        } else if (data.type === 'hypothesis' && data.text) {
+          setTranscript(data.text);
           if (aiState !== 'processing' && aiState !== 'responding') {
             setAiState('listening');
           }
@@ -117,9 +123,10 @@ export function VoiceBar() {
     return () => stream.close();
   }, [addMessage, addNotification, aiState, runCommand, setAiState]);
 
-  // In-Browser Web Speech API Listener (if supported in current environment)
+  // In-Browser Web Speech API Listener (fallback only when native backend recognizer is inactive)
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (voiceConnected) return;
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
 
@@ -185,7 +192,7 @@ export function VoiceBar() {
         try { recognition.stop(); } catch {}
       }
     };
-  }, [aiState, runCommand]);
+  }, [aiState, runCommand, voiceConnected]);
 
   useEffect(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);

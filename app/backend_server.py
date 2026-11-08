@@ -375,10 +375,10 @@ class JarvisApiServer:
         self.metrics = SystemMetrics()
         self.metrics_sampler = MetricsSampler(self.metrics)
         self.memory = MemoryStore()
-        self.voice = WindowsSpeechRecognizer()
-        self.tts = WindowsSpeechSynthesizer()
         wake_phrase = load_config().get("wake_phrase", "Daddy's home")
-        self.wake_detector = WakeDetector(wake_phrase=wake_phrase, on_wake=self._on_wake_detected)
+        self.voice = WindowsSpeechRecognizer(wake_phrase=wake_phrase, on_wake=self._on_wake_detected)
+        self.tts = WindowsSpeechSynthesizer()
+        self.wake_detector = WakeDetector(wake_phrase=wake_phrase, on_wake=self._on_wake_detected, recognizer=self.voice)
         self.activity_log = ActivityLog()
         self._server = ThreadingHTTPServer((host, port), self._handler())
         self._thread: threading.Thread | None = None
@@ -392,10 +392,9 @@ class JarvisApiServer:
         self._wake_window_callback = callback
 
     def _on_wake_detected(self, event: dict[str, Any]) -> None:
-        """Handler invoked when wake phrase or clap is triggered."""
-        self.voice._events.put(event)
-        if not self.voice.is_listening:
-            self.voice.start()
+        """Handler invoked when wake phrase is triggered."""
+        if getattr(self.tts, "is_speaking", False):
+            return
         self.tts.speak("Yes, sir?")
         if self._wake_window_callback:
             try:
@@ -486,14 +485,23 @@ class JarvisApiServer:
                 self.send_header("Access-Control-Allow-Origin", get_cors_origin())
                 self.end_headers()
                 try:
+                    init_payload = json.dumps({"type": "status", "listening": voice.is_listening, "message": "Voice stream connected."})
+                    self.wfile.write(f"data: {init_payload}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+
                     while not api_server._stopping.is_set():
                         event = voice.next_event(timeout=1.0)
-                        if event and event.get("type") == "transcript":
-                            text_lower = str(event.get("text", "")).lower().strip()
-                            last_spoken = getattr(tts, "last_spoken", "").lower().strip()
-                            # Acoustic echo suppression: only drop if it echoes what JARVIS is currently speaking
-                            if tts.is_speaking and last_spoken and (text_lower in last_spoken or last_spoken in text_lower):
-                                continue
+                        if event:
+                            event_type = event.get("type")
+                            if event_type == "transcript":
+                                text_lower = str(event.get("text", "")).lower().strip()
+                                last_spoken = getattr(tts, "last_spoken", "").lower().strip()
+                                # Acoustic echo suppression: only drop if it echoes what JARVIS is currently speaking
+                                if tts.is_speaking and last_spoken and (text_lower in last_spoken or last_spoken in text_lower):
+                                    continue
+                            elif event_type == "wake":
+                                if tts.is_speaking:
+                                    continue
                         payload = event or {"type": "heartbeat", "listening": voice.is_listening}
                         self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode("utf-8"))
                         self.wfile.flush()
@@ -723,8 +731,8 @@ class JarvisApiServer:
             },
         ]
         self.memory.seed_initial(initial_memories)
-        if load_config().get("wake_detection_enabled", True):
-            self.wake_detector.start()
+        if load_config().get("wake_detection_enabled", True) or load_config().get("voiceEnabled", True):
+            self.voice.start()
         self._thread = threading.Thread(target=self._server.serve_forever, name="jarvis-api", daemon=True)
         self._thread.start()
 

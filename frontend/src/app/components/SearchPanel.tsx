@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Globe, Image, FileText, Clock, TrendingUp, X, ExternalLink } from 'lucide-react';
+import { useApp } from '../context/AppContext';
+import { sendCommand } from '../services/jarvisApi';
 
 const orb = { fontFamily: 'Orbitron, sans-serif' };
 const mono = { fontFamily: 'Share Tech Mono, monospace' };
@@ -33,6 +35,7 @@ const typeColors: Record<string, string> = {
 };
 
 export function SearchPanel() {
+  const { addNotification } = useApp();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<typeof MOCK_RESULTS['default']>([]);
   const [loading, setLoading] = useState(false);
@@ -48,6 +51,13 @@ export function SearchPanel() {
       setHistory(h => [q, ...h.filter(x => x !== q)].slice(0, 5));
       setLoading(false);
     }, 800 + Math.random() * 400);
+  };
+
+  const handleLaunchWebSearch = (searchQuery: string) => {
+    const q = searchQuery.trim();
+    if (!q) return;
+    void sendCommand(`search ${q}`, 'search');
+    addNotification({ type: 'info', title: 'Web Search', message: `Searching browser for "${q}"...` });
   };
 
   const handleSubmit = () => {
@@ -91,13 +101,24 @@ export function SearchPanel() {
           </button>
         )}
         <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           onClick={handleSubmit}
-          className="px-2.5 py-1.5 rounded-lg cursor-pointer"
+          className="px-2.5 py-1.5 rounded-lg cursor-pointer flex items-center gap-1"
           style={{ background: 'rgba(14,165,233,0.2)', border: '1px solid rgba(14,165,233,0.4)' }}
         >
           <span style={{ ...mono, color: '#0ea5e9', fontSize: '10px' }}>GO</span>
+        </motion.button>
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => handleLaunchWebSearch(query || 'JARVIS AI')}
+          title="Search Google in browser"
+          className="px-2.5 py-1.5 rounded-lg cursor-pointer flex items-center gap-1"
+          style={{ background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)' }}
+        >
+          <ExternalLink className="w-3 h-3" style={{ color: '#22c55e' }} />
+          <span style={{ ...mono, color: '#22c55e', fontSize: '10px' }}>WEB</span>
         </motion.button>
       </div>
 
@@ -154,6 +175,7 @@ export function SearchPanel() {
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.1 }}
+                  onClick={() => handleLaunchWebSearch(r.title)}
                   className="rounded-xl p-3 group cursor-pointer"
                   style={{
                     background: 'rgba(0,8,25,0.5)',

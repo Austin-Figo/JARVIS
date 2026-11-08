@@ -38,6 +38,7 @@ interface AppContextType {
   setAiState: (s: AIState) => void;
   messages: Message[];
   addMessage: (msg: Omit<Message, 'id' | 'timestamp'>) => void;
+  clearMessages: () => void;
   notifications: Notification[];
   addNotification: (n: Omit<Notification, 'id'>) => void;
   removeNotification: (id: string) => void;
@@ -141,6 +142,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setMessages(prev => [...prev, { ...msg, id: Date.now().toString(), timestamp: new Date() }]);
   }, []);
 
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+  }, []);
+
   const removeNotification = useCallback((id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
   }, []);
@@ -154,7 +159,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider value={{
       aiState, setAiState,
-      messages, addMessage,
+      messages, addMessage, clearMessages,
       notifications, addNotification, removeNotification,
       scanningActive, setScanningActive,
       appGridOpen, setAppGridOpen,

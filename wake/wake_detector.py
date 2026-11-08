@@ -1,126 +1,73 @@
-"""Wake detection engine for JARVIS (Wake phrase 'Daddy's home' & Clap detection).
+"""Wake detection engine for JARVIS.
 
-Runs offline on Windows using System.Speech.Recognition with a constrained grammar
-and real-time audio level monitoring for transient spike (clap) detection.
+Integrates with the unified Windows speech recognizer to detect wake phrases
+offline using System.Speech without audio device contention.
 """
 
 from __future__ import annotations
 
-import base64
-import os
 import queue
-import subprocess
-import threading
 import time
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, TYPE_CHECKING
 
-
-_WAKE_SCRIPT = r'''
-Add-Type -AssemblyName System.Speech
-$engine = New-Object System.Speech.Recognition.SpeechRecognitionEngine
-$engine.SetInputToDefaultAudioDevice()
-
-# Build targeted grammar for wake phrases
-$builder = New-Object System.Speech.Recognition.GrammarBuilder
-$choices = New-Object System.Speech.Recognition.Choices
-$choices.Add([string[]]@(
-    "Hey Jarvis", "hey Jarvis", "hey jarvis",
-    "He Jarvis", "he Jarvis", "he jarvis",
-    "Hi Jarvis", "hi Jarvis", "hi jarvis",
-    "Jarvis", "jarvis",
-    "Daddy's home", "daddy's home",
-    "Wake up Jarvis", "wake up jarvis",
-    "Hello Jarvis", "hello jarvis",
-    "Ok Jarvis", "Okay Jarvis"
-))
-$builder.Append($choices)
-$grammar = New-Object System.Speech.Recognition.Grammar($builder)
-$engine.LoadGrammar($grammar)
-
-try {
-    $engine.InitialSilenceTimeout = [TimeSpan]::FromSeconds(8)
-    $engine.EndSilenceTimeout = [TimeSpan]::FromSeconds(0.8)
-    $engine.EndSilenceTimeoutAmbiguous = [TimeSpan]::FromSeconds(0.6)
-} catch {}
-
-# Audio level tracking disabled to prevent background noise false-triggers
-
-$engine.add_SpeechRecognized({
-    param($sender, $event)
-    if ($event.Result.Text) {
-        [Console]::Out.WriteLine("WAKE:" + $event.Result.Text)
-        [Console]::Out.Flush()
-    }
-})
-
-[Console]::Out.WriteLine("READY")
-[Console]::Out.Flush()
-
-$engine.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
-while ($true) { Start-Sleep -Milliseconds 250 }
-'''
+if TYPE_CHECKING:
+    from voice.windows_recognizer import WindowsSpeechRecognizer
 
 
 class WakeDetector:
-    """Continuous offline background detector for wake phrases and claps."""
+    """Continuous offline detector for wake phrases."""
 
-    def __init__(self, wake_phrase: str = "Daddy's home", on_wake: Callable[[Dict[str, Any]], None] | None = None) -> None:
+    def __init__(
+        self,
+        wake_phrase: str = "Daddy's home",
+        on_wake: Callable[[Dict[str, Any]], None] | None = None,
+        recognizer: Any | None = None,
+    ) -> None:
         self.wake_phrase = wake_phrase
         self._on_wake = on_wake
+        self._recognizer: Any | None = recognizer
         self._events: queue.Queue[Dict[str, Any]] = queue.Queue()
-        self._process: subprocess.Popen[str] | None = None
-        self._reader: threading.Thread | None = None
-        self._lock = threading.Lock()
         self._is_running = False
+
+        if self._recognizer is not None:
+            self._recognizer.set_wake_callback(self._handle_wake)
 
     @property
     def is_running(self) -> bool:
-        return self._is_running and self._process is not None and self._process.poll() is None
+        if self._recognizer is not None:
+            return self._recognizer.is_listening
+        return self._is_running
+
+    def _handle_wake(self, event: Dict[str, Any]) -> None:
+        self._events.put(event)
+        if self._on_wake:
+            try:
+                self._on_wake(event)
+            except Exception:
+                pass
 
     def start(self) -> Dict[str, Any]:
-        """Start the background wake detector."""
-        with self._lock:
-            if self.is_running:
-                return {"ok": True, "running": True, "message": "Wake detector is already active."}
+        """Start the wake detector."""
+        if self._recognizer is not None:
+            res = self._recognizer.start()
+            self._is_running = self._recognizer.is_listening
+            return {"ok": res.get("ok", True), "running": self.is_running, "message": res.get("message", "Wake detector active.")}
 
-            kwargs = {}
-            if os.name == "nt":
-                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = 0  # SW_HIDE
-                kwargs["startupinfo"] = startupinfo
+        if self.is_running:
+            return {"ok": True, "running": True, "message": "Wake detector is already active."}
 
-            try:
-                encoded = base64.b64encode(_WAKE_SCRIPT.encode("utf-16le")).decode("ascii")
-                self._process = subprocess.Popen(
-                    ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encoded],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    text=True,
-                    bufsize=1,
-                    **kwargs,
-                )
-                self._is_running = True
-                self._reader = threading.Thread(target=self._read_output, name="jarvis-wake-reader", daemon=True)
-                self._reader.start()
-                return {"ok": True, "running": True, "message": f"Wake detector started (listening for '{self.wake_phrase}' and claps)."}
-            except Exception as e:
-                self._is_running = False
-                return {"ok": False, "running": False, "message": f"Could not start wake detector: {e}"}
+        from voice.windows_recognizer import WindowsSpeechRecognizer
+        self._recognizer = WindowsSpeechRecognizer(wake_phrase=self.wake_phrase, on_wake=self._handle_wake)
+        res = self._recognizer.start()
+        self._is_running = self._recognizer.is_listening
+        return {"ok": res.get("ok", True), "running": self.is_running, "message": f"Wake detector started (listening for '{self.wake_phrase}')."}
 
     def stop(self) -> Dict[str, Any]:
         """Stop the wake detector."""
-        with self._lock:
-            self._is_running = False
-            process = self._process
-            self._process = None
-            if process and process.poll() is None:
-                try:
-                    process.terminate()
-                    process.wait(timeout=2)
-                except Exception:
-                    process.kill()
+        self._is_running = False
+        if self._recognizer is not None:
+            res = self._recognizer.stop()
+            return {"ok": res.get("ok", True), "running": False, "message": "Wake detector stopped."}
         return {"ok": True, "running": False, "message": "Wake detector stopped."}
 
     def next_event(self, timeout: float = 1.0) -> Dict[str, Any] | None:
@@ -129,39 +76,3 @@ class WakeDetector:
             return self._events.get(timeout=timeout)
         except queue.Empty:
             return None
-
-    def _read_output(self) -> None:
-        """Read recognized events from child process."""
-        proc = self._process
-        if not proc or not proc.stdout:
-            return
-
-        for raw_line in proc.stdout:
-            line = raw_line.strip()
-            if not line:
-                continue
-
-            event: Dict[str, Any] | None = None
-            if line.startswith("WAKE:"):
-                phrase = line.split(":", 1)[1].strip()
-                event = {
-                    "type": "wake",
-                    "trigger": "phrase",
-                    "phrase": phrase,
-                    "timestamp": int(time.time() * 1000),
-                }
-            elif line.startswith("CLAP:"):
-                event = {
-                    "type": "wake",
-                    "trigger": "clap",
-                    "phrase": "Double Clap",
-                    "timestamp": int(time.time() * 1000),
-                }
-
-            if event:
-                self._events.put(event)
-                if self._on_wake:
-                    try:
-                        self._on_wake(event)
-                    except Exception:
-                        pass
