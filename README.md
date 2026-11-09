@@ -60,3 +60,10 @@ Default wake phrase: **"Daddy's home"** (configurable in `config/settings.json`)
 .\.venv\Scripts\python.exe installer\build_executable.py
 ```
 Outputs the standalone windowed executable at: `dist\JARVIS\JARVIS.exe`.
+
+
+## Configuration and security
+
+JARVIS reads provider credentials from process environment variables (`GEMINI_API_KEY` or `OPENAI_API_KEY`). Set `AI_PROVIDER` and optionally `AI_MODEL` to select a provider and model. The included `.env.example` is documentation only: the current application does not automatically load `.env` files. Set variables in the PowerShell session that launches JARVIS. Never place real credentials in `config/settings.json` or commit populated local settings.
+
+A provider credential was found in earlier Git history. It has been removed from the current audit branch, but history cleanup and credential rotation are still required before this repository can safely be made public. See [SECURITY.md](SECURITY.md).
