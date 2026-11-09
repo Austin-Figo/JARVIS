@@ -18,11 +18,6 @@ from core.jarvis_core import JarvisCore
 from memory.store import MemoryStore
 
 
-def _load_settings_keys() -> Dict[str, str]:
-    """Return no credentials from files; secrets must come from the process environment."""
-    return {}
-
-
 class AIProvider:
     """Unified AI provider supporting multiple LLM backends with RAG memory."""
 
@@ -31,16 +26,15 @@ class AIProvider:
     PROVIDER_OLLAMA = "ollama"
 
     def __init__(self, provider: str | None = None, model: str | None = None, memory: MemoryStore | None = None):
-        settings_keys = _load_settings_keys()
         
         # Auto-detect provider if not explicitly given
         if provider:
             self.provider = provider
         elif os.environ.get("AI_PROVIDER"):
             self.provider = os.environ["AI_PROVIDER"]
-        elif (os.environ.get("GEMINI_API_KEY") ) and "•" not in (os.environ.get("GEMINI_API_KEY")):
+        elif (os.environ.get("GEMINI_API_KEY")) and "•" not in (os.environ.get("GEMINI_API_KEY")):
             self.provider = self.PROVIDER_GEMINI
-        elif (os.environ.get("OPENAI_API_KEY") ) and "•" not in (os.environ.get("OPENAI_API_KEY")):
+        elif (os.environ.get("OPENAI_API_KEY")) and "•" not in (os.environ.get("OPENAI_API_KEY")):
             self.provider = self.PROVIDER_OPENAI
         else:
             self.provider = "mock"
@@ -54,12 +48,11 @@ class AIProvider:
 
     def _configure_provider(self) -> None:
         """Set up provider-specific settings. Gracefully falls back to mock."""
-        settings_keys = _load_settings_keys()
         try:
             if self.provider == self.PROVIDER_GEMINI:
                 import google.generativeai as genai
 
-                api_key = os.environ.get("GEMINI_API_KEY") or settings_keys.get("gemini", "")
+                api_key = os.environ.get("GEMINI_API_KEY", "")
                 if api_key and "•" not in api_key:
                     genai.configure(api_key=api_key)
                     self.model = self.model or "gemini-3.1-flash-lite"
@@ -70,7 +63,7 @@ class AIProvider:
             elif self.provider == self.PROVIDER_OPENAI:
                 import openai
 
-                api_key = os.environ.get("OPENAI_API_KEY") or settings_keys.get("openai", "")
+                api_key = os.environ.get("OPENAI_API_KEY", "")
                 if api_key and "•" not in api_key:
                     openai.api_key = api_key
                     self._client = openai.OpenAI(api_key=api_key)
