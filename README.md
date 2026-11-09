@@ -1,69 +1,82 @@
-# JARVIS
+# JARVIS — Personal AI Desktop Assistant
 
-Personal AI desktop assistant for Windows.
+A Windows desktop assistant combining voice interaction, multi-provider LLM integration, local memory, and controlled operating-system actions.
 
-## Vision & Capabilities
+> **Project status:** Personal engineering project. Windows-focused. Review the security notes before running or exposing any local service.
 
-JARVIS is a secure, offline-capable personal AI assistant featuring:
+## Core capabilities
 
-- **Offline Speech Recognition (STT)**: Built with Windows native `System.Speech.Recognition`.
-- **Offline Voice Feedback (TTS)**: Built with Windows native `System.Speech.Synthesis`.
-- **Wake Phrase & Clap Activation**: Background wake word detection ("Daddy's home", "Jarvis") and double-clap acoustic peak trigger.
-- **Multi-Provider AI Intelligence**: Unified LLM engine supporting Google Gemini, OpenAI, local Ollama, and local fallback.
-- **RAG & Persistent Memory Core**: SQLite-backed local memory engine automatically indexing and injecting notes, preferences, and context into conversations.
-- **Windows Actions & System Controls**: Zero-dependency Win32 controls for audio volume, media playback, workstation locking, power telemetry, and screen capture.
-- **Automated Workflows**: Multi-step composite routines for focus mode, developer setup, and diagnostics.
-- **Holographic Cyberpunk HUD**: React + Vite + Tailwind UI featuring live hardware telemetry charts, central Arc Reactor AI core, terminal console, and settings.
-- **Secure Sandboxing & Permissions**: Append-only activity audit logging and human-in-the-loop confirmation before launching external applications.
-- **Standalone Windows Application**: PySide6 Qt WebEngine desktop shell with custom animated splash screen and one-click PyInstaller packager.
+- **AI providers:** Google Gemini, OpenAI, and local Ollama through a unified provider interface.
+- **Voice interaction:** Windows speech recognition and speech synthesis, wake-phrase handling, and acoustic activation.
+- **Local memory:** SQLite-backed notes and retrieval-augmented context.
+- **Desktop automation:** Application launching, volume and media controls, screenshots, workstation locking, and system telemetry.
+- **Workflow routines:** Multi-step focus, developer, and diagnostic routines.
+- **Desktop interface:** React, Vite, and Tailwind frontend hosted inside a PySide6 desktop shell.
+- **Packaging:** PyInstaller-based Windows executable build workflow.
 
-## Wake Phrase
+## Architecture
 
-Default wake phrase: **"Daddy's home"** (configurable in `config/settings.json`), plus **"Jarvis"** and acoustic **double-clap** detection.
+| Component | Responsibility |
+|---|---|
+| frontend/ | React-based desktop dashboard |
+| app/ | PySide6 shell and local application server |
+| ai/ | LLM provider integration, prompt handling, and tool dispatch |
+| voice/ and wake/ | Speech input/output and activation |
+| memory/ | Persistent local memory and retrieval |
+| actions/ and core/ | Windows actions, telemetry, and command execution |
+| automation/ | Multi-step local workflows |
+| security/ | Permission checks and activity logging |
+| tests/ | Automated test sources |
+| installer/ | Windows packaging scripts |
 
----
+## Technology
 
-## Project Structure
+Python, PySide6, React, Vite, Tailwind CSS, SQLite, Windows speech APIs, Win32 integration, PyInstaller, and integrations for Gemini, OpenAI, and Ollama.
 
-- `actions/` — Windows native system controls (volume, media, screen capture, browser, power).
-- `automation/` — Automated multi-step workflow routines (focus mode, dev mode, diagnostics).
-- `ai/` — Unified LLM provider (Gemini, OpenAI, Ollama) with RAG memory context and tool calling.
-- `app/` — Desktop PySide6 shell, animated splash screen, and standard-library HTTP + SSE API server.
-- `core/` — Core Win32 hardware telemetry and safe command dispatch engine.
-- `frontend/` — Futuristic React HUD interface with live streaming monitors, audio visualizer, and dock.
-- `installer/` — Packaging configuration (`jarvis.spec`), automated builder (`build_executable.py`), and documentation.
-- `logs/` — Append-only audit logs (`activity.jsonl`) and captured screenshots.
-- `memory/` — Thread-safe SQLite persistent memory database (`jarvis_memory.db`).
-- `scripts/` — Convenience build and automation scripts.
-- `security/` — Action validation, permission checks, and activity audit logging.
-- `tests/` — Automated test suite covering core, memory, AI, actions, voice, wake detection, and API.
-- `voice/` — Offline Windows speech recognition and speech synthesis engines.
-- `wake/` — Background wake phrase and acoustic double-clap detector.
+## Run locally
 
----
+The project is intended for Windows. Create and activate a virtual environment, install the dependencies listed in the repository, then run from the project root:
 
-## Getting Started
-
-### 1. Running in Development Mode
 ```powershell
-# In virtual environment:
-.\.venv\Scripts\python.exe main.py
+python main.py
 ```
 
-### 2. Running Test Suite
+Run the test runner:
+
 ```powershell
-.\.venv\Scripts\python.exe tests\run_all_tests.py
+python tests\run_all_tests.py
 ```
 
-### 3. Packaging into Standalone Executable
+Build the Windows executable:
+
 ```powershell
-.\.venv\Scripts\python.exe installer\build_executable.py
+python installer\build_executable.py
 ```
-Outputs the standalone windowed executable at: `dist\JARVIS\JARVIS.exe`.
 
+## Configure an AI provider
 
-## Configuration and security
+JARVIS reads credentials from process environment variables. The included .env.example documents variable names; it is not automatically loaded by the application.
 
-JARVIS reads provider credentials from process environment variables (`GEMINI_API_KEY` or `OPENAI_API_KEY`). Set `AI_PROVIDER` and optionally `AI_MODEL` to select a provider and model. The included `.env.example` is documentation only: the current application does not automatically load `.env` files. Set variables in the PowerShell session that launches JARVIS. Never place real credentials in `config/settings.json` or commit populated local settings.
+Example PowerShell session:
 
-A provider credential was found in earlier Git history. It has been removed from the current audit branch, but history cleanup and credential rotation are still required before this repository can safely be made public. See [SECURITY.md](SECURITY.md).
+```powershell
+$env:AI_PROVIDER = "gemini"
+$env:AI_MODEL = "your-supported-model"
+$env:GEMINI_API_KEY = "your-key"
+python main.py
+```
+
+For OpenAI, set AI_PROVIDER to openai and provide OPENAI_API_KEY. For Ollama, set AI_PROVIDER to ollama and optionally set OLLAMA_URL.
+
+**Never commit real credentials.** Keep local configuration and database files out of Git.
+
+## Security and limitations
+
+- JARVIS can execute local Windows actions. Run it only on a trusted machine and review confirmation and permission behavior before enabling actions.
+- Do not expose its local API or desktop services to an untrusted network.
+- A provider API credential was previously committed to Git history. The owner reports that the key has been revoked. The audit branch removes credentials from the current settings file and changes provider loading to environment variables, but the historical Git object still requires cleanup before public release.
+- See [SECURITY.md](SECURITY.md) for the current security boundary and cleanup requirement.
+
+## Project goals
+
+JARVIS explores practical integration of desktop automation, voice interfaces, local context retrieval, and multi-provider AI systems. It is a personal engineering project, not a claim of production-grade security or reliability.
