@@ -25,3 +25,9 @@ logs/*
 # OS
 Thumbs.db
 .DS_Store
+# Local-only application configuration and generated data
+config/settings.local.json
+config/settings.*.local.json
+*.sqlite
+*.sqlite3
+*.db
